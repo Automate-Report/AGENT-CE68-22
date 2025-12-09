@@ -1,63 +1,60 @@
-import time 
+import time
+import sys
 from datetime import datetime
 
-def perform_task(iteration):
+# Import module config ที่เราเพิ่งสร้าง
+import config 
+
+def perform_task(settings, iteration):
     """
-    ฟังก์ชันแกนหลักที่ทำงานทุกๆ 1 นาที
+    ฟังก์ชันทำงานหลัก รับ settings เข้ามาเพื่อใช้ URL หรือ Token
     """
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    api_url = settings.get("api_url")
+    auth_data = settings.get("auth")
     
     print(f"--- [Task Cycle {iteration}] ---")
-    print(f"Time Check: {current_time}")
+    print(f"Time: {current_time}")
     
-    # จำลองการส่งข้อมูลที่ต้องใช้ Token ไปยัง Backend
-    # headers = {"Authorization": f"Bearer {access_token}"}
-    try:
-        # สมมติว่ามี API สำหรับส่ง Status
-        # requests.post(f"{API_URL}/agent/status", json={"time": current_time}, headers=headers)
-        pass
-    except Exception as e:
-        print(f"Warning: Failed to send status to server. {e}")
+    if auth_data:
+        token = auth_data.get("access_token")
+        # print(f"Sending data to {api_url} using token {token[:10]}...")
+        # requests.post(..., headers={"Authorization": f"Bearer {token}"})
+    else:
+        print("Warning: No Auth Token. Task running in offline mode.")
     
     print("----------------------------")
 
-
-# ----------------------------------------------------------------
-# MAIN LOOP
-# ----------------------------------------------------------------
-
 def start_agent():
-    # config = load_config()
-    # access_token = config.get("access_token")
-
-    # --- 1. Handshake (ถ้ายังไม่มี Token ถาวร) ---
-    # if not access_token:
-    #     reg_token = EMBEDDED_REG_TOKEN
-        
-    #     # ป้องกันกรณีรันไฟล์ Template เปล่าๆ
-    #     if "REGISTRATION_TOKEN" in reg_token: 
-    #         print("Error: Invalid installer. Please download from dashboard.")
-    #         sys.exit(1)
-
-    #     access_token = handshake_and_get_token(reg_token)
-    #     if not access_token:
-    #         print("Could not obtain Access Token. Exiting.")
-    #         sys.exit(1)
-
-    # print(f"Agent successfully authenticated. Starting main loop...")
+    # 1. โหลดค่า Config ทั้งหมดมาเก็บไว้ในตัวแปรเดียว
+    app_settings = config.load_settings()
     
+    interval = app_settings.get("task_interval_seconds", 60)
+    print(f"Agent starting... Interval: {interval}s")
+
+    # ตรวจสอบว่าลงทะเบียนหรือยัง (มี Token ไหม?)
+    if not app_settings.get("auth"):
+        print("Agent is not registered. Please run handshake process first.")
+        # ตรงนี้อาจจะเรียกฟังก์ชัน Handshake ถ้าต้องการ
+        # sys.exit(1) 
+
     iteration = 0
-    while True:
-        iteration += 1
-        try:
-            perform_task(iteration)
+    try:
+        while True:
+            iteration += 1
             
-        except Exception as e:
-            print(f"!!! An unexpected error occurred: {e}. Retrying...")
+            # ส่ง settings เข้าไปใน task เผื่อมีการใช้ค่าข้างใน
+            perform_task(app_settings, iteration)
             
-        # --- PAUSE (Sleep) ---
-        print(f"Sleeping for 60 seconds (Remaining: {60 - (datetime.now().second % 60)}s)...")
-        time.sleep(60)
+            # Logic การรอเวลาให้ตรงวินาทีที่ 00
+            now = datetime.now()
+            sleep_time = interval - now.second % interval
+            if sleep_time <= 0: sleep_time = interval
+            
+            time.sleep(sleep_time)
+
+    except KeyboardInterrupt:
+        print("\nAgent stopped.")
 
 if __name__ == "__main__":
     start_agent()

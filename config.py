@@ -2,6 +2,7 @@ import json
 import os
 import stat
 import sys
+from cryptography.fernet import Fernet
 
 # --- Constants ---
 SECRET_FILE = ".worker_secret"     # ไฟล์เก็บ Token (ห้ามแก้, ห้ามแชร์)
@@ -13,6 +14,13 @@ DEFAULT_CONFIG = {
     "task_interval_seconds": 60,
     "log_level": "INFO"
 }
+
+# from cryptography.fernet import Fernet
+# print(Fernet.generate_key().decode())
+# คุณจะได้ String ยาวๆ เช่น "Xj-9...=" ให้ Copy เก็บไว้
+
+ENCRYPTION_KEY = b'gPN8qnR_vSIySogiV5QJBJcsWKoEBYBmebJPdy5rgSs=' 
+cipher = Fernet(ENCRYPTION_KEY)
 
 def get_app_path():
     """
@@ -28,39 +36,47 @@ def get_app_path():
         return os.path.dirname(os.path.abspath(__file__))
     
 APP_PATH = get_app_path()
-SECRET_FILE_PATH = os.path.join(APP_PATH, ".worker_secret")
-CONFIG_FILE_PATH = os.path.join(APP_PATH, "worker_config.json")
+SECRET_FILE_PATH = os.path.join(APP_PATH, "secret.dat")
+CONFIG_FILE_PATH = os.path.join(APP_PATH, "config.dat")
+
+def load_encrypted_json(filepath):
+    """ฟังก์ชันช่วยอ่านไฟล์ที่เข้ารหัสไว้"""
+    if not os.path.exists(filepath):
+        return None
+    try:
+        with open(filepath, "rb") as f: # อ่านเป็น Bytes (rb)
+            encrypted_data = f.read()
+            
+        # ถอดรหัส
+        decrypted_data = cipher.decrypt(encrypted_data)
+        
+        # แปลง Bytes -> JSON Dict
+        return json.loads(decrypted_data.decode())
+    except Exception as e:
+        print(f"Error loading {filepath}: {e}")
+        return None
+
 
 def load_settings():
-    """
-    โหลด Config ทั้งหมด (Default + User Config + Secret)
-    คืนค่าเป็น Dictionary เดียว
-    """
-    # 1. เริ่มจากค่า Default
-    settings = DEFAULT_CONFIG.copy()
+    settings = {
+        "api_url": "http://localhost:8000", # Default fallback
+        "task_interval_seconds": 60
+    }
     
-    # 2. โหลด User Config (ถ้ามี) มาทับค่า Default
-    if os.path.exists(CONFIG_FILE_PATH):
-        try:
-            with open(CONFIG_FILE_PATH, "r", encoding='utf-8') as f:
-                user_config = json.load(f)
-                settings.update(user_config)
-        except Exception as e:
-            print(f"[Config] Warning: Could not read {CONFIG_FILE}: {e}")
+    # 1. โหลด Config (ที่เข้ารหัสแล้ว)
+    user_config = load_encrypted_json(CONFIG_FILE_PATH)
+    if user_config:
+        settings.update(user_config)
 
-    # 3. โหลด Secret (ถ้ามี) มาเก็บใน key 'auth'
-    if os.path.exists(SECRET_FILE_PATH):
-        try:
-            with open(SECRET_FILE_PATH, "r", encoding='utf-8') as f:
-                secrets = json.load(f)
-                settings["auth"] = secrets
-        except Exception as e:
-            print(f"[Config] Warning: Could not read {SECRET_FILE}: {e}")
-            settings["auth"] = None
+    # 2. โหลด Secret (ที่เข้ารหัสแล้ว)
+    secrets = load_encrypted_json(SECRET_FILE_PATH)
+    if secrets:
+        settings["auth"] = secrets
     else:
         settings["auth"] = None
 
     return settings
+
 
 def save_secret(data):
     """

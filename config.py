@@ -7,7 +7,7 @@ from cryptography.fernet import Fernet
 # --- Constants ---
 SECRET_FILE = ".worker_secret"     # ไฟล์เก็บ Token (ห้ามแก้, ห้ามแชร์)
 CONFIG_FILE = "worker_config.json" # ไฟล์ตั้งค่า (User แก้ได้)
-KEY_FILE_PATH = ".system_key"
+KEY_FILE_PATH = ".system_lock"
 
 # ค่า Default พื้นฐาน
 DEFAULT_CONFIG = {
@@ -16,12 +16,6 @@ DEFAULT_CONFIG = {
     "log_level": "INFO"
 }
 
-# from cryptography.fernet import Fernet
-# print(Fernet.generate_key().decode())
-# คุณจะได้ String ยาวๆ เช่น "Xj-9...=" ให้ Copy เก็บไว้
-
-ENCRYPTION_KEY = b'gPN8qnR_vSIySogiV5QJBJcsWKoEBYBmebJPdy5rgSs=' 
-cipher = Fernet(ENCRYPTION_KEY)
 
 def get_app_path():
     """
@@ -36,13 +30,15 @@ def get_app_path():
         # กรณีรันเป็น .py
         return os.path.dirname(os.path.abspath(__file__))
     
+    
 APP_PATH = get_app_path()
 SECRET_FILE_PATH = os.path.join(APP_PATH, "secret.dat")
 CONFIG_FILE_PATH = os.path.join(APP_PATH, "config.dat")
-KEY_FILE_PATH = os.path.join(APP_PATH, "system_lock.dat")
+KEY_FILE_PATH = os.path.join(APP_PATH, ".system_lock")
+
 
 def load_key():
-    """อ่านกุญแจจากไฟล์ .system_key"""
+    """อ่านกุญแจจากไฟล์ .system_lock"""
     if not os.path.exists(KEY_FILE_PATH):
         print("Error: Encryption key not found!")
         return None
@@ -53,7 +49,7 @@ def load_key():
         print(f"Error reading key: {e}")
         return None
 
-def load_encrypted_json(filepath):
+def load_encrypted_json(filepath, cipher):
     """ฟังก์ชันช่วยอ่านไฟล์ที่เข้ารหัสไว้"""
     if not os.path.exists(filepath):
         return None
@@ -70,18 +66,37 @@ def load_encrypted_json(filepath):
         print(f"Error loading {filepath}: {e}")
         return None
 
+def save_secret(data):
+    """บันทึกข้อมูลลับทับลงไปใหม่ (เช่น ตอนได้ API Key มาแล้ว)"""
+    key = load_key()
+    if not key:
+        print("Error: No encryption key found, cannot save secret.")
+        return
+
+    try:
+        cipher = Fernet(key)
+        # แปลง Dict -> String -> Encrypted Bytes
+        encrypted_data = cipher.encrypt(json.dumps(data).encode())
+        
+        with open(SECRET_FILE, "wb") as f:
+            f.write(encrypted_data)
+        print("✅ Secret updated successfully.")
+    except Exception as e:
+        print(f"Error saving secret: {e}")
+
 
 def load_settings():
     settings = {
         "api_url": "http://localhost:8000",
-        "task_interval_seconds": 60
+        "task_interval_seconds": 60,
+        "auth": {}
     }
     
     # 1. โหลดกุญแจก่อน
     key = load_key()
     if not key:
-        print("Fatal Error: No encryption key provided.")
-        return settings # หรือ sys.exit(1)
+        print("⚠️ Warning: Encryption key not found. Agent might be unconfigured.")
+        return settings
 
     # สร้าง Cipher จากกุญแจที่อ่านได้
     cipher = Fernet(key)

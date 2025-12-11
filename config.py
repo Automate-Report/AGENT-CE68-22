@@ -7,6 +7,7 @@ from cryptography.fernet import Fernet
 # --- Constants ---
 SECRET_FILE = ".worker_secret"     # ไฟล์เก็บ Token (ห้ามแก้, ห้ามแชร์)
 CONFIG_FILE = "worker_config.json" # ไฟล์ตั้งค่า (User แก้ได้)
+KEY_FILE_PATH = ".system_key"
 
 # ค่า Default พื้นฐาน
 DEFAULT_CONFIG = {
@@ -38,6 +39,19 @@ def get_app_path():
 APP_PATH = get_app_path()
 SECRET_FILE_PATH = os.path.join(APP_PATH, "secret.dat")
 CONFIG_FILE_PATH = os.path.join(APP_PATH, "config.dat")
+KEY_FILE_PATH = os.path.join(APP_PATH, "system_lock.dat")
+
+def load_key():
+    """อ่านกุญแจจากไฟล์ .system_key"""
+    if not os.path.exists(KEY_FILE_PATH):
+        print("Error: Encryption key not found!")
+        return None
+    try:
+        with open(KEY_FILE_PATH, "rb") as f:
+            return f.read().strip() # อ่านกุญแจออกมา
+    except Exception as e:
+        print(f"Error reading key: {e}")
+        return None
 
 def load_encrypted_json(filepath):
     """ฟังก์ชันช่วยอ่านไฟล์ที่เข้ารหัสไว้"""
@@ -59,17 +73,25 @@ def load_encrypted_json(filepath):
 
 def load_settings():
     settings = {
-        "api_url": "http://localhost:8000", # Default fallback
+        "api_url": "http://localhost:8000",
         "task_interval_seconds": 60
     }
     
-    # 1. โหลด Config (ที่เข้ารหัสแล้ว)
-    user_config = load_encrypted_json(CONFIG_FILE_PATH)
+    # 1. โหลดกุญแจก่อน
+    key = load_key()
+    if not key:
+        print("Fatal Error: No encryption key provided.")
+        return settings # หรือ sys.exit(1)
+
+    # สร้าง Cipher จากกุญแจที่อ่านได้
+    cipher = Fernet(key)
+
+    # 2. โหลด Config & Secret (ส่ง cipher เข้าไป)
+    user_config = load_encrypted_json(CONFIG_FILE_PATH, cipher)
     if user_config:
         settings.update(user_config)
 
-    # 2. โหลด Secret (ที่เข้ารหัสแล้ว)
-    secrets = load_encrypted_json(SECRET_FILE_PATH)
+    secrets = load_encrypted_json(SECRET_FILE_PATH, cipher)
     if secrets:
         settings["auth"] = secrets
     else:

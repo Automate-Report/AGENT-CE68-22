@@ -1,7 +1,0 @@
-{
-  "api_url": "http://127.0.0.1:8000/",
-  "task_interval_seconds": 60,
-  "log_level": "INFO",
-  "agent_version": "1.0.0",
-  "computer_name": "My-MacBook-Pro"
-}

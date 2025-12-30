@@ -57,6 +57,9 @@ class EncryptedConfig:
         except Exception as e:
             print("❌ อ่าน Config ไม่ได้ (ไฟล์อาจถูกย้ายมาจากเครื่องอื่น หรือเสียหาย)")
             return None
+    
+    def remove_file(self):
+        os.remove(self.filename)
 
 # --- ฟังก์ชันหลักสำหรับเรียกใช้จากข้างนอก ---
 # def get_or_ask_key():

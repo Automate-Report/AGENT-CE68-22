@@ -1,4 +1,5 @@
 import time
+import sys
 from src.config import settings
 from src.core.auth import AuthManager
 from src.core.api_client import APIClient
@@ -12,6 +13,8 @@ def main():
 
     print(f"🚀 Worker Started...")
 
+    client.start_heartbeat_loop()
+
     while True:
         n+=1
         payload = {
@@ -20,6 +23,8 @@ def main():
         }
 
         result = client.post(settings.SUBMIT_TASK_ENDPOINT, payload)
+
+
         print(f"✅ [Cycle {n}] {result}")
 
         time.sleep(settings.poll_interval)

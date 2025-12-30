@@ -30,4 +30,7 @@ class AuthManager:
 
     def get_headers(self):
         """Header พร้อม Toekn"""
-        return {"Authorization": f"Bearer {self.token}"}                                                            
+        return {"Authorization": f"Bearer {self.token}"}               
+
+    def reset(self):
+        self.token = None                                             

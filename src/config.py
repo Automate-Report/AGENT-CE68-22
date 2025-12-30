@@ -33,6 +33,10 @@ class Settings:
 
         self.secure_store = EncryptedConfig("secret.dat")
 
+    def reset(self):
+        self.access_key = None
+        self.secure_store.remove_file()
+
     def load(self):
         """โหลดค่าทั้งหมดจาก 3 แหล่ง"""
         self.hostname = platform.node()

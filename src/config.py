@@ -99,15 +99,6 @@ class Settings:
         # 1. ลองโหลดจากไฟล์ลับก่อน
         key = self.secure_store.load_access_key()
 
-        
-        if key:
-            self.access_key = key
-            return
-
-        # 2. ถ้าไม่มี ให้ถาม User (Console Input)
-        print("\n🔑 Security Check Required")
-        print("--------------------------")
-
         # url to get worker_name
         url = f"{self.backend_url}{self.GET_WORKER_ENDPOINT}{int(self.worker_id)}"
         print(url)
@@ -115,6 +106,16 @@ class Settings:
         data = response.json()
         worker_name = data.get("name")
         self.worker_name = worker_name
+
+
+        if key:
+            self.access_key = key
+
+            return
+
+        # 2. ถ้าไม่มี ให้ถาม User (Console Input)
+        print("\n🔑 Security Check Required")
+        print("--------------------------")
 
 
         while not key:

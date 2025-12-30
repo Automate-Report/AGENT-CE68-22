@@ -4,7 +4,7 @@ import platform
 from datetime import datetime
 
 # Import module config ที่เราเพิ่งสร้าง
-import config 
+import temp_config 
 
 current_jwt = None
 
@@ -38,7 +38,7 @@ def handshake(settings):
             }
 
             # บันทึกลงไฟล์ (Encrypted)
-            config.save_secret(new_secret)
+            temp_config.save_secret(new_secret)
             
             # อัปเดตตัวแปร settings ในหน่วยความจำด้วย
             settings["auth"] = new_secret
@@ -126,7 +126,7 @@ def start_agent():
     print("🤖 Agent Starting...")
     
     # 1. โหลด Config
-    settings = config.load_settings()
+    settings = temp_config.load_settings()
     auth = settings.get("auth", {})
     worker_id = auth.get("worker_id", "Unknown")
     

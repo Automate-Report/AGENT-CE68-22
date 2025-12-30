@@ -1,4 +1,4 @@
-pyinstaller
 cryptography
 requests
 nuitka
+zstandard

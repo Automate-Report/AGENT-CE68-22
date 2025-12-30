@@ -1,6 +1,7 @@
 import requests
 from src.config import settings
 
+
 class AuthManager:
     def __init__(self):
         self.token = None
@@ -8,13 +9,15 @@ class AuthManager:
     def verify_worker(self):
         """แลก Access Key เป็น JWT Token"""
         try: 
-            url = f"{settings.BACKEND_URL}{settings.VERIFY_ENDPOINT}"
+            url = f"{settings.backend_url}{settings.VERIFY_ENDPOINT}"
             payload = {
-                "worker_id": settings.WORKER_ID,
-                "key": settings.ACCESS_KEY,
-                "hostname": settings.HOSTNAME
+                "worker_id": settings.worker_id,
+                "key": settings.access_key,
+                "hostname": settings.hostname
             }
+
             response = requests.post(url, json=payload)
+            
 
             if response.status_code == 200:
                 print("Verified Success")

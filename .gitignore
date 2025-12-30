@@ -1,4 +1,7 @@
-.worker_secret
+main.build/
+main.dist/
+main.onefile-build/
+nuitka-crash-report.xml
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

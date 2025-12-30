@@ -8,14 +8,13 @@ class APIClient:
 
     def post(self, endpoint, data):
         """POST Request"""
-
         # Check ว่ามี Token รึยัง
         if not self.auth.token:
             if not self.auth.verify_worker():
                 return None
-            
+
         # POST Request
-        url = f"{settings.BACKEND_URL}{endpoint}"
+        url = f"{settings.backend_url}{endpoint}"
         response = requests.post(url, json=data, headers=self.auth.get_headers())
 
         # Error handler

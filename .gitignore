@@ -2,6 +2,7 @@ main.build/
 main.dist/
 main.onefile-build/
 nuitka-crash-report.xml
+secret.dat
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

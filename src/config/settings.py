@@ -10,7 +10,7 @@ from src.core.config_manager import EncryptedConfig
 
 class Settings:
     
-    EMBEDDED_KEY = b'i-0yYzq1qgi--twBbVJBH6neq1xw38E8ZcJ7KdBVBjM='
+    EMBEDDED_KEY = b'JimGiFbXqlAwUAXu2PM1_eATccCMR7uAoB0wfI2DMgQ='
     DELIMITER = b"|||HIDDEN_DATA|||"
 
     GET_WORKER_ENDPOINT="/workers/"

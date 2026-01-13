@@ -7,3 +7,5 @@ beautifulsoup4  # สำหรับแกะ HTML หา Link/Form
 playwright      # สำหรับโหลดหน้าเว็บ Dynamic และ Verify Alert
 colorama        # สำหรับแสดงผลสีใน Terminal (สวยงาม)
 fake-useragent  # สำหรับสุ่ม User-Agent เนียนๆ
+
+pyinstaller

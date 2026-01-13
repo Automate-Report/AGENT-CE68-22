@@ -6,12 +6,14 @@ from src.test import test_xss
 
 def main():
 
+
     n = 0
     auth = AuthManager()
+    print(auth.verify_worker())
     client = APIClient(auth)
 
     print(f"🚀 Worker Started...")
-
+    
     client.start_heartbeat_loop()
 
     
@@ -24,13 +26,13 @@ def main():
     }
 
     result = client.post(settings.SUBMIT_TASK_ENDPOINT, payload)
+    print(result)
 
 
     print(f"✅ [Cycle {n}] {result}")
 
     time.sleep(settings.poll_interval)
     result = test_xss()
-    time.sleep(100)
 
     
 

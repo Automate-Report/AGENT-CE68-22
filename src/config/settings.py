@@ -30,12 +30,12 @@ class Settings:
 
 
     def __init__(self):
-        self.worker_id = 19
-        self.worker_name = "werty"
-        self.backend_url = "http://127.0.0.1:8000"
-        self.access_key = "Hnwkr2JDCTupKMC_W66h4_9NNII4_XlrnN_5NFGH_q4"
+        self.worker_id = None
+        self.worker_name = None
+        self.backend_url = None
+        self.access_key = None
         self.poll_interval = 5
-        self.hostname = "test"
+        self.hostname = None
 
         self.secure_store = EncryptedConfig("secret.dat")
 
@@ -139,4 +139,4 @@ class Settings:
 
 # สร้าง Instance เดียวใช้ทั้งโปรแกรม
 settings = Settings()
-# settings.load()
+settings.load()

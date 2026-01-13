@@ -4,7 +4,6 @@ import os
 import getpass
 import requests
 import platform
-import time
 
 from cryptography.fernet import Fernet
 from src.core.config_manager import EncryptedConfig
@@ -20,6 +19,12 @@ class Settings:
     HEART_BEAT_ENDPOINT="/workers/heartbeat"
 
     CONFIG_FILE_NAME = "config.json" # ไฟล์เก็บค่าทั่วไปให้ user แก้ไขได้ 
+
+    #====================================================================
+    USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    TIMEOUT = 10
+    VERIFY_TIMEOUT = 5000  # 5 seconds for Playwright wait
+    DEBUG = True
 
 
 

@@ -1,0 +1,56 @@
+# security-worker/main.py
+from core.crawler import Crawler
+from core.logger import setup_logger
+
+from modules.xss.scanner import XSSScanner
+from modules.xss.dom_scanner import DOMScanner
+
+def test_xss():
+    logger = setup_logger("Worker")
+
+    reflected_scanner = XSSScanner()
+    crawler = Crawler()
+    dom_scanner = DOMScanner()
+
+    logger.info("[*] Crawler is running...")
+    target_url = "https://public-firing-range.appspot.com/address/index.html"
+    # https://public-firing-range.appspot.com/address/index.html
+    # http://testphp.vulnweb.com/search.php
+    # https://xss-game.appspot.com/level2/frame
+    # http://localhost:4040/#/search
+
+    crawled_targets = crawler.crawl(target_url)
+    logger.info(f"[*] Found {len(crawled_targets)} targets. Starting Scans...")
+
+    for t in crawled_targets:
+        url = t['url']
+        params = t.get('params', {})
+
+        logger.info(f"--- Analyzing: {url} ---")
+        
+        logger.info("[1] Running Reflected Scan...")
+        findings_reflected = reflected_scanner.scan(url, params)
+        if findings_reflected:
+            logger.info(f"[!!!] VULNERABILITY FOUND at {url}")
+            for f in findings_reflected:
+                logger.info(f"   -> Payload: {f['payload']}")
+                logger.info(f"   -> Context: {f['context']}")
+                if f.get('confirmed'):
+                    logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
+        else:
+            logger.info(f"[-] Clean: {url}")
+        
+        logger.info("[2] Running DOM Scan...")
+        findings_dom = dom_scanner.scan(url, params)
+        if findings_dom:
+            logger.info(f"    🚨 DOM XSS Found!")
+            for f in findings_dom:
+                logger.info(f"   -> Payload: {f['payload']}")
+                logger.info(f"   -> Context: {f['context']}")
+                if f.get('confirmed'):
+                    logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
+        else:
+            logger.info(f"[-] Clean: {url}")
+
+    return True
+

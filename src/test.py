@@ -1,9 +1,9 @@
 # security-worker/main.py
-from core.crawler import Crawler
-from core.logger import setup_logger
+from src.core.crawler import Crawler
+from src.core.logger import setup_logger
 
-from modules.xss.scanner import XSSScanner
-from modules.xss.dom_scanner import DOMScanner
+from src.modules.xss.scanner import XSSScanner
+from src.modules.xss.dom_scanner import DOMScanner
 
 def test_xss():
     logger = setup_logger("Worker")
@@ -13,7 +13,7 @@ def test_xss():
     dom_scanner = DOMScanner()
 
     logger.info("[*] Crawler is running...")
-    target_url = "https://public-firing-range.appspot.com/address/index.html"
+    target_url = "https://xss-game.appspot.com/level2/frame"
     # https://public-firing-range.appspot.com/address/index.html
     # http://testphp.vulnweb.com/search.php
     # https://xss-game.appspot.com/level2/frame

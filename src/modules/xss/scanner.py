@@ -1,14 +1,14 @@
 # Logic หลัก Analyze -> Payload -> Verify
 # security-worker/modules/xss/scanner.py
 
-from modules.base_module import BaseScanner
-from modules.xss.context import ContextAnalyzer
-from modules.xss.verifier import XSSVerifier
+from src.modules.base_module import BaseScanner
+from src.modules.xss.context import ContextAnalyzer
+from src.modules.xss.verifier import XSSVerifier
 
-from core.requester import Requester
-from core.logger import setup_logger
+from src.core.requester import Requester
+from src.core.logger import setup_logger
 
-from utils.load_file import load_file
+from src.utils.load_file import load_file
 
 class XSSScanner(BaseScanner):
     def __init__(self):
@@ -21,10 +21,10 @@ class XSSScanner(BaseScanner):
         
         # จำลอง Payload (ของจริงควรโหลดจากไฟล์)
         self.payloads = {
-            "HTML_BODY": load_file('data/payloads/xss/body.txt'),
-            "HTML_ATTRIBUTE": load_file('data/payloads/xss/attribute.txt'),
-            "JAVASCRIPT_VAR": load_file('data/payloads/xss/script.txt'),
-            "GENERIC": load_file('data/payloads/xss/polyglot.txt')
+            "HTML_BODY": load_file('src/data/payloads/xss/body.txt', self.logger),
+            "HTML_ATTRIBUTE": load_file('src/data/payloads/xss/attribute.txt', self.logger),
+            "JAVASCRIPT_VAR": load_file('src/data/payloads/xss/script.txt', self.logger),
+            "GENERIC": load_file('data/payloads/xss/polyglot.txt', self.logger)
         }
 
     def scan(self, url: str, params: dict) -> list:

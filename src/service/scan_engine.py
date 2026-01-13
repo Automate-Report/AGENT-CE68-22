@@ -1,8 +1,8 @@
-from core.crawler import Crawler
-from modules.xss.scanner import XSSScanner
-from modules.xss.dom_scanner import DOMScanner
-from core.logger import setup_logger
-from core.requester import Requester
+from src.core.crawler import Crawler
+from src.modules.xss.scanner import XSSScanner
+from src.modules.xss.dom_scanner import DOMScanner
+from src.core.logger import setup_logger
+from src.core.requester import Requester
 
 class ScanEngine:
     def __init__(self):

@@ -31,7 +31,7 @@ class Settings:
     def __init__(self):
         self.worker_id = None
         self.worker_name = None
-        self.backend_url =None
+        self.backend_url = None
         self.access_key = None
         self.poll_interval = 5
         self.hostname = None

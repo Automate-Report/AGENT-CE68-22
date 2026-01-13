@@ -2,9 +2,9 @@
 from playwright.sync_api import sync_playwright, Page, Locator
 import re
 import time
-import os
 
-from core.logger import setup_logger
+
+from src.core.logger import setup_logger
 
 class DOMScanner:
     def __init__(self):

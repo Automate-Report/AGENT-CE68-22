@@ -6,7 +6,7 @@
 import requests
 import urllib3
 
-from core.logger import setup_logger
+from src.core.logger import setup_logger
 
 # ปิด Warning กรณีเทสกับเว็บ HTTPS ที่ไม่มี Cer
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)

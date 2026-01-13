@@ -3,8 +3,8 @@
 #     -fast request static website
 #     -slow spa website
 from playwright.sync_api import sync_playwright, Page
-from core.deduplicator import Deduplicator
-from core.logger import setup_logger
+from src.core.deduplicator import Deduplicator
+from src.core.logger import setup_logger
 
 from urllib.parse import urlparse, urljoin
 

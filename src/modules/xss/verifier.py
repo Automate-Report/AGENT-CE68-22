@@ -1,6 +1,6 @@
 #Platwright check alert
 from playwright.sync_api import sync_playwright
-from core.logger import setup_logger
+from src.core.logger import setup_logger
 
 class XSSVerifier:
     def __init__(self):

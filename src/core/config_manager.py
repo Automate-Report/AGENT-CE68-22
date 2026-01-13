@@ -2,7 +2,6 @@ import os
 import json
 import uuid
 import base64
-import getpass
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes

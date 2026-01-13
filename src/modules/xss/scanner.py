@@ -9,6 +9,7 @@ from src.core.requester import Requester
 from src.core.logger import setup_logger
 
 from src.utils.load_file import load_file
+from src.utils.path_helper import get_resource_path
 
 class XSSScanner(BaseScanner):
     def __init__(self):
@@ -21,10 +22,10 @@ class XSSScanner(BaseScanner):
         
         # จำลอง Payload (ของจริงควรโหลดจากไฟล์)
         self.payloads = {
-            "HTML_BODY": load_file('src/data/payloads/xss/body.txt', self.logger),
-            "HTML_ATTRIBUTE": load_file('src/data/payloads/xss/attribute.txt', self.logger),
-            "JAVASCRIPT_VAR": load_file('src/data/payloads/xss/script.txt', self.logger),
-            "GENERIC": load_file('data/payloads/xss/polyglot.txt', self.logger)
+            "HTML_BODY": load_file(get_resource_path('data/payloads/xss/body.txt'), self.logger),
+            "HTML_ATTRIBUTE": load_file(get_resource_path('data/payloads/xss/attribute.txt'), self.logger),
+            "JAVASCRIPT_VAR": load_file(get_resource_path('data/payloads/xss/script.txt'), self.logger),
+            "GENERIC": load_file(get_resource_path('data/payloads/xss/polyglot.txt'), self.logger)
         }
 
     def scan(self, url: str, params: dict) -> list:

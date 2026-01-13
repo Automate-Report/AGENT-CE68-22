@@ -313,7 +313,7 @@ class DOMScanner:
         start_time = time.time()
         with sync_playwright() as p:
             # 1. Setup Browser
-            browser = p.chromium.launch(headless=False, slow_mo=100) # Debug Mode
+            browser = p.chromium.launch(channel="chrome", headless=True, slow_mo=100) # Debug Mode
             context = browser.new_context(ignore_https_errors=True)
             
             # ใช้ Mutable Dict เพื่อแชร์ state ระหว่าง function และ event listener

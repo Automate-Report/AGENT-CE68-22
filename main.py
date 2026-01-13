@@ -1,3 +1,11 @@
+import os
+import sys
+
+# [FIX] บังคับให้ Playwright ไปหา Browser ในเครื่อง (System Path) 
+# แทนที่จะหาในโฟลเดอร์ _internal ของ .exe
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
+
+
 import time
 from src.config.settings import settings
 from src.core.auth import AuthManager

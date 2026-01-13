@@ -2,6 +2,7 @@
 # มี 2 แบบ
 #     -fast request static website
 #     -slow spa website
+import time
 from playwright.sync_api import sync_playwright, Page
 from src.core.deduplicator import Deduplicator
 from src.core.logger import setup_logger
@@ -16,47 +17,63 @@ class Crawler:
 
     def crawl(self, start_url: str, max_depth: int = 2):
         """
-        Main Entry Point: ควบคุม Loop การ Crawl ตามความลึกที่กำหนด
+        Main Entry Point: ควบคุม Loop การ Crawl พร้อม Debug Log ละเอียด
         """
         self.logger.info(f"[*] Starting Crawl on: {start_url} (Depth: {max_depth})")
         
-        # กำหนด Scope ว่าห้ามหลุดออกไปนอกโดเมนตั้งต้น
         base_domain = urlparse(start_url).netloc
+        self.logger.debug(f"    [DEBUG] Scope set to domain: {base_domain}")
         
-        # ใช้ Queue เก็บ URL ที่ต้องไป (Format: (url, current_depth))
-        # เริ่มต้นด้วย URL แรก ที่ความลึก 0
         queue = [(start_url, 0)]
-        
-        # Set สำหรับกันการ Crawl หน้าซ้ำ (เฉพาะ URL ไม่รวม Params)
         visited_urls = set()
 
         with sync_playwright() as p:
-            # Setup Browser
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(channel="chrome", headless=True)
             context = browser.new_context(ignore_https_errors=True)
             page = context.new_page()
 
             while queue:
-                current_url, current_depth = queue.pop(0) # ดึงตัวแรกออกมาทำ (BFS)
+                # Debug: ดูสถานะคิว
+                self.logger.debug(f"    [DEBUG] Queue Size: {len(queue)} | Visited: {len(visited_urls)}")
                 
-                # 1. เช็คเงื่อนไข: เคยไปหรือยัง? ลึกเกินไปไหม?
-                if current_url in visited_urls or current_depth > max_depth:
+                current_url, current_depth = queue.pop(0) 
+                
+                # 1. Debug: เช็คเงื่อนไขการ Skip
+                if current_url in visited_urls:
+                    # self.logger.debug(f"    [DEBUG] Skipping {current_url} (Already visited)")
+                    continue
+                
+                if current_depth > max_depth:
+                    self.logger.debug(f"    [DEBUG] Skipping {current_url} (Max depth {max_depth} reached)")
                     continue
                 
                 visited_urls.add(current_url)
                 
                 try:
-                    # 2. ประมวลผลหน้าเว็บ (Extract Params)
+                    # Debug: เริ่ม Process หน้า
+                    # self.logger.info(f"    [>] Crawling: {current_url} (Depth: {current_depth})")
+                    start_time = time.time()
+                    
                     found_params = self._process_page(page, current_url)
+                    
+                    # Debug: ดูเวลาที่ใช้ต่อหน้า
+                    elapsed = time.time() - start_time
+                    self.logger.debug(f"    [DEBUG] Processed in {elapsed:.2f}s | Found params: {len(found_params)}")
                     
                     self._save_target(current_url, found_params)
 
-                    # 3. หา Link ไปต่อ (ถ้ายังไม่ถึงความลึกสูงสุด)
+                    # 3. หา Link ไปต่อ
                     if current_depth < max_depth:
                         new_links = self._discover_links(page, current_url, base_domain)
+                        
+                        # Debug: ดูจำนวน Link ที่เจอ
+                        added_count = 0
                         for link in new_links:
                             if link not in visited_urls:
                                 queue.append((link, current_depth + 1))
+                                added_count += 1
+                        
+                        self.logger.debug(f"    [DEBUG] Discovered {len(new_links)} links -> Added {added_count} new to queue.")
                                 
                 except Exception as e:
                     self.logger.error(f"[-] Error processing {current_url}: {e}")

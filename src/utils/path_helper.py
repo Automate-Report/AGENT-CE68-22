@@ -3,13 +3,14 @@ import os
 
 def get_resource_path(relative_path):
     """
-    ฟังก์ชันมหัศจรรย์: หา Path ที่ถูกต้องไม่ว่าจะรันผ่าน Python หรือ EXE
+    ฟังก์ชันนี้จะหา Path ที่ถูกต้องให้เอง
+    - ถ้าเป็น Dev Mode: จะหาจากโฟลเดอร์โปรเจกต์
+    - ถ้าเป็น EXE Mode: จะหาจากโฟลเดอร์ Temp ที่ EXE แตกไฟล์ออกมา (_MEIPASS)
     """
-    if getattr(sys, 'frozen', False):
-        # กรณีรันผ่าน EXE: ให้ใช้ Path ที่ไฟล์ .exe ตั้งอยู่
-        base_path = os.path.dirname(sys.executable)
-    else:
-        # กรณีรันผ่าน Python ปกติ: ให้ใช้ Path ปัจจุบันของโปรเจกต์
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
         base_path = os.path.abspath(".")
 
     return os.path.join(base_path, relative_path)

@@ -67,7 +67,6 @@ class XSSScanner(BaseScanner):
         """
         Service: ยิง Probe เพื่อหา Context และ Bad Chars (Mixed -> Clean Fallback)
         """
-        # เตรียมตัวแปรผลลัพธ์
         result = {
             "found": False,
             "contexts": [],
@@ -81,13 +80,16 @@ class XSSScanner(BaseScanner):
         probe_params[param_key] = mixed_payload
         
         self.logger.info(f"    [>] Trying Mixed Probe: {mixed_payload}")
+        
+        response = None # ประกาศตัวแปรรอไว้ก่อน
         try:
             response = self.requester.get(url, params=probe_params)
         except Exception as e:
             self.logger.error(f"    [-] Request failed: {e}")
-            return result
+            return result # ถ้า Request พังตั้งแต่แรก ให้จบเลย
 
-        if self.analyzer.default_probe in response.text:
+        # [FIX 1] เช็คว่า response ไม่ใช่ None ก่อนเรียก .text
+        if response and self.analyzer.default_probe in response.text:
             self.logger.info(f"        [+] Found Reflection with Mixed Probe!")
             analysis = self.analyzer.analyze(response.text, self.analyzer.default_probe)
             
@@ -97,33 +99,38 @@ class XSSScanner(BaseScanner):
             result["reflected_raw"] = analysis["reflected_raw"]
             
             self.logger.info(f"        [+] Context: {result['contexts']}")
-            self.logger.info(f"        [+] Bad Chars: {result['bad_chars']}")
-
-            self.logger.debug(f"        [DEBUG] Reflected Raw Suffix: '{result['reflected_raw']}'")
-                
-            # +++ เพิ่มบรรทัดนี้เพื่อดูเนื้อหาจริงๆ รอบๆ Probe +++
-            start_index = response.text.find(self.analyzer.default_probe)
-            # ตัดข้อความมาดู หน้า 10 ตัว หลัง 20 ตัว
-            snippet = response.text[max(0, start_index-10) : start_index+30]
-            self.logger.debug(f"        [DEBUG] Full Snippet from Server: ...{snippet}...")
+            
+            # Debug snippet
+            try:
+                start_index = response.text.find(self.analyzer.default_probe)
+                snippet = response.text[max(0, start_index-10) : start_index+30]
+                self.logger.debug(f"        [DEBUG] Snippet: ...{snippet}...")
+            except: pass
+            
             return result
 
         # --- 1.2 Try Clean Probe (ของเบา - Fallback) ---
         self.logger.info(f"        [-] Mixed Probe failed. Retrying with Clean Probe...")
         probe_params[param_key] = self.analyzer.default_probe
-        response = self.requester.get(url, params=probe_params)
+        
+        # [FIX 2] เพิ่ม try-except ให้ส่วนนี้ด้วย (เดิมอาจจะไม่มี)
+        try:
+            response = self.requester.get(url, params=probe_params)
+        except Exception as e:
+            self.logger.error(f"    [-] Clean Probe Request failed: {e}")
+            return result
 
-        if self.analyzer.default_probe in response.text:
+        # [FIX 3] เช็ค response อีกรอบ
+        if response and self.analyzer.default_probe in response.text:
             self.logger.info(f"        [+] Found Reflection with Clean Probe!")
             analysis = self.analyzer.analyze(response.text, self.analyzer.default_probe)
             
             result["found"] = True
             result["contexts"] = analysis["contexts"]
-            result["bad_chars"] = [] # ไม่รู้ Bad Chars แต่รู้ว่า Reflect
+            result["bad_chars"] = [] 
             result["reflected_raw"] = analysis["reflected_raw"]
 
             self.logger.info(f"        [+] Context: {result['contexts']}")
-            self.logger.warning(f"        [!] Warning: Special characters caused instability.")
             return result
 
         return result

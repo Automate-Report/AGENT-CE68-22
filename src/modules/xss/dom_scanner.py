@@ -1,15 +1,15 @@
 # modules/xss/dom_scanner.py
 from playwright.sync_api import sync_playwright, Page, Locator
-import re
 import time
-import base64
-
 
 from src.core.logger import setup_logger
+from .dom.page_handler import DOMPageHandler
 
 class DOMScanner:
     def __init__(self):
         self.logger = setup_logger("XSS DOM Scanner")
+        self.handler = DOMPageHandler(debug_mode=True)
+
         self.payloads = [
             "<img src=x onerror=alert(1)>", 
             "<iframe src='javascript:alert(1)'></iframe>",
@@ -17,97 +17,8 @@ class DOMScanner:
         ]
         self.debug_mode = True
         self.scan_timeout = 60
-
-    def _capture_evidence(self, page: Page) -> str:
-        """
-        ถ่าย Screenshot แล้วแปลงเป็น Base64 String เพื่อส่งผ่าน API
-        """
-        try:
-            # ใช้ jpeg quality 70 เพื่อลดขนาดไฟล์ (ส่งผ่าน Network จะได้ไม่หนัก)
-            screenshot_bytes = page.screenshot(type="jpeg", quality=70, full_page=False)
-            base64_str = base64.b64encode(screenshot_bytes).decode('utf-8')
-            return base64_str
-        except Exception as e:
-            self.logger.error(f"[-] Failed to capture screenshot: {e}")
-            return None
-
-    def _setup_page(self, context, scan_state: dict) -> Page:
-        page = context.new_page()
-
-        # 1. [NEW] ฝัง Script ตั้งแต่เริ่มโหลดหน้าเว็บ (Monkey Patch)
-        # เขียนทับ function alert, confirm, prompt ของ Browser
-        page.add_init_script("""
-            window.alert = function(msg) {
-                // เรียกใช้ฟังก์ชันวาดกล่องแดงที่เราเตรียมไว้
-                drawFakeAlert('alert', msg);
-                // ส่งสัญญาณลับบอก Playwright
-                console.log('__XSS_DETECTED__:' + msg);
-            };
-
-            window.confirm = function(msg) {
-                drawFakeAlert('confirm', msg);
-                console.log('__XSS_DETECTED__:' + msg);
-                return true; // Auto accept
-            };
-
-            window.prompt = function(msg) {
-                drawFakeAlert('prompt', msg);
-                console.log('__XSS_DETECTED__:' + msg);
-                return "test"; // Return dummy value
-            };
-
-            // ฟังก์ชันวาดกล่องแดง (ประกาศไว้ใน Global Scope)
-            window.drawFakeAlert = function(type, msg) {
-                const div = document.createElement('div');
-                div.style.cssText = `
-                    position: fixed !important;
-                    top: 10px !important;
-                    left: 50% !important;
-                    transform: translateX(-50%) !important;
-                    background-color: #ffcccc !important;
-                    border: 3px solid red !important;
-                    color: red !important;
-                    padding: 20px !important;
-                    font-weight: bold !important;
-                    font-size: 16px !important;
-                    z-index: 2147483647 !important;
-                    box-shadow: 0 10px 20px rgba(0,0,0,0.5) !important;
-                `;
-                div.innerText = '🚨 DOM XSS (' + type + '): ' + msg;
-                document.body.appendChild(div);
-            };
-        """)
-
-        # 2. ไม่ต้องใช้ handle_dialog แล้ว (เพราะเราเขียนทับ alert ไปแล้ว Popup จริงจะไม่เด้ง)
-        # แต่ใส่ไว้กันเหนียว เผื่อมีบางอันหลุดมา
-        def handle_dialog(dialog):
-            try: dialog.accept()
-            except: pass
-
-        # 3. [NEW] เปลี่ยนมาดักจับที่ Console แทน
-        def handle_console(msg):
-            # เช็คสัญญาณลับที่เราส่งมาจากข้างบน
-            if "__XSS_DETECTED__" in msg.text:
-                # แยกข้อความออกมา
-                clean_msg = msg.text.replace("__XSS_DETECTED__:", "")
-                
-                self.logger.info(f"    [!!!] DOM XSS DETECTED (via Console Hook): {clean_msg}")
-                
-                scan_state["alert_triggered"] = True
-                scan_state["last_message"] = clean_msg
-                
-                # ถ่ายรูปได้เลย! (หน้าเว็บไม่ค้างแล้ว)
-                try:
-                    scan_state["screenshot"] = self._capture_evidence(page)
-                except Exception as e:
-                    self.logger.error(f"Screenshot failed: {e}")
-
-        page.on("dialog", handle_dialog)
-        page.on("console", handle_console) # พระเอกตัวจริง
-        
-        return page
     
-    def _fuzz_url_fragments(self, page: Page, url: str, scan_state: dict):
+    def _fuzz_url_fragments(self, page: Page, url: str):
         """
         [NEW] โจมตีผ่าน URL Fragment (Source-based XSS)
         """
@@ -130,31 +41,16 @@ class DOMScanner:
         ]
 
         for payload in url_payloads:
-            if scan_state["alert_triggered"]: return
+            if self.handler.scan_state["alert_triggered"]: return
 
             try:
-                # Logic การต่อ URL (เหมือนเดิม)
-                if payload.startswith("?"):
-                    target_url = f"{url}{payload}" if "?" not in url else f"{url}&{payload[1:]}"
-                else:
-                    target_url = f"{url}{payload}"
-                
-                # print(f"       [>] Fuzzing: {payload} ...")
-                
-                # IMPORTANT: DOM XSS บางทีต้อง Reload หน้าเพื่อให้ Script ทำงานใหม่
+                target_url = f"{url}{payload}" if "?" not in url else f"{url}&{payload[1:]}"
                 page.goto(target_url, wait_until="domcontentloaded", timeout=3000)
-                
-                # ท่าไม้ตายเสริม: ถ้าเป็น Hash change บางที page.goto ไม่ reload
-                # เราต้องสั่ง reload ซ้ำเพื่อให้โค้ด eval(location.hash) ทำงาน
-                if "#" in payload:
-                    page.reload(timeout=3000)
-
+                if "#" in payload: page.reload(timeout=3000)
                 page.wait_for_timeout(500)
-                
-            except Exception as e:
-                pass
+            except: pass
     
-    def _run_scan_logic(self, page: Page, url: str, params: dict, scan_state: dict, start_time: float) -> list:
+    def _run_scan_logic(self, page: Page, url: str, params: dict, start_time: float) -> list:
         """
         ควบคุม Flow การทำงาน: ไปที่ URL -> ปิด Popup -> วนลูป Params
         """
@@ -169,60 +65,52 @@ class DOMScanner:
             self.logger.error("       [!] Navigation timeout, but continuing...")
 
         # Pre-flight Checks
-        self._handle_popups(page)
-        self._wait_for_inputs(page)
+        self.handler.handle_popups(page)
+        self.handler.wait_for_inputs(page)
 
         # --- PHASE 1: URL Source Fuzzing ---
-        self._fuzz_url_fragments(page, url, scan_state)
+        self.handler.reset_state()
+        self._fuzz_url_fragments(page, url)
 
-        if scan_state["alert_triggered"]:
-            self.logger.info("       [..] Alert detected! Waiting for evidence capture...")
-            time.sleep(2)
-            findings.append({
-                "url": url,
-                "param": "URL_FRAGMENT",
-                "payload": "Multiple",
-                "context": "DOM_BASED (Source)",
-                "confirmed": True,
-                "details": scan_state["last_message"],
-                # [NEW] แนบรูปไปด้วย
-                "screenshot": scan_state.get("screenshot") 
-            })
+        if self.handler.scan_state["alert_triggered"]:
+            findings.append(self._create_finding_dict(url, "URL_FRAGMENT", "Source-based"))
             self.logger.info(f"       [!!!] Vulnerability Found via URL Fragment!")
-            return findings 
+            return findings
 
         # --- PHASE 2: Input Fuzzing ---
         for param_key in params.keys():
             if time.time() - start_time > self.scan_timeout:
                 break
 
-            if scan_state["alert_triggered"]: break
+            if self.handler.scan_state["alert_triggered"]: break
 
             self.logger.info(f"    -> Testing Parameter: {param_key}")
-            scan_state["alert_triggered"] = False # Reset flag
-            scan_state["screenshot"] = None       # Reset screenshot
 
-            is_vulnerable = self._process_input(page, param_key)
+            self.handler.reset_state()
 
-            if is_vulnerable or scan_state["alert_triggered"]:
-                # [FIX] เพิ่มการรอตรงนี้ครับ!
-                # รอให้ handle_dialog ทำงานเสร็จ (Inject UI + Screenshot) ก่อนที่จะปิด Browser
+            self._process_input(page, param_key)
+
+            if self.handler.scan_state["alert_triggered"]:
                 self.logger.info("       [..] Alert detected! Waiting for evidence capture...")
-                time.sleep(2) 
-
-                findings.append({
-                    "url": url,
-                    "param": param_key,
-                    "payload": "Multiple (DOM)",
-                    "context": "DOM_BASED",
-                    "confirmed": True,
-                    "details": scan_state["last_message"],
-                    "screenshot": scan_state.get("screenshot")
-                })
+                time.sleep(2) # รอ Handler ถ่ายรูปให้เสร็จชัวร์ๆ
+                
+                findings.append(self._create_finding_dict(url, param_key, "DOM_BASED"))
                 self.logger.info(f"       [+] Vulnerability Recorded for {param_key}")
-                break
+                break 
 
         return findings
+
+    def _create_finding_dict(self, url, param, context):
+        """Helper function เพื่อสร้าง Dictionary ผลลัพธ์ให้เป็นระเบียบ"""
+        return {
+            "url": url,
+            "param": param,
+            "payload": "Multiple (DOM)",
+            "context": context,
+            "confirmed": True,
+            "details": self.handler.scan_state["last_message"],
+            "screenshot": self.handler.scan_state["screenshot"]
+        }
 
     def _process_input(self, page: Page, param_key: str) -> bool:
         """
@@ -235,12 +123,10 @@ class DOMScanner:
             if self.debug_mode: 
                 self.logger.debug(f"       [DEBUG] Injecting payloads into: {target}")
             self._inject_payloads(target, page)
-            return False # ผลลัพธ์จะไปอยู่ที่ Event Listener (scan_state)
         else:
             self.logger.info(f"       [-] Specific input '{param_key}' not found. Switching to Fuzzing Mode...")
             # 2. Fallback: Fuzz All Visible Inputs
             self._fuzz_all_visible_inputs(page)
-            return False
 
     def _find_specific_element(self, page: Page, param_key: str) -> Locator:
         """
@@ -333,43 +219,6 @@ class DOMScanner:
         except:
             pass
 
-    def _handle_popups(self, page: Page):
-        """
-        Heuristic Popup Handler: ปิด Popup กวนใจ
-        """
-        self.logger.info("       [..] Handling Popups...")
-        keywords = ["Accept", "Allow", "Agree", "Dismiss", "Close", "Got it"]
-        
-        for word in keywords:
-            try:
-                btn = page.get_by_role("button", name=re.compile(word, re.IGNORECASE))
-                if btn.count() > 0 and btn.first.is_visible():
-                    if self.debug_mode: 
-                        self.logger.debug(f"       [DEBUG] Dismissing popup: {word}")
-                    btn.first.click(timeout=500)
-                    page.wait_for_timeout(200)
-            except: pass
-
-    def _wait_for_inputs(self, page: Page):
-        """
-        รอให้หน้าเว็บ Render Input เสร็จ
-        """
-        self.logger.info("       [..] Waiting for inputs...")
-        try:
-            page.wait_for_selector("input", state="visible", timeout=5000)
-        except:
-            self.logger.error("       [!] Warning: Page load slow or no inputs.")
-
-    def _take_debug_screenshot(self, page: Page, name: str):
-        """ถ่ายรูปหน้าจอเมื่อเกิด Error เพื่อดูว่าหน้าเว็บเป็นยังไง"""
-        if self.debug_mode:
-            filename = f"debug_{name}_{int(time.time())}.png"
-            try:
-                page.screenshot(path=filename)
-                self.logger.debug(f"       [DEBUG] Screenshot saved: {filename}")
-            except:
-                pass
-
     def scan(self, url: str, params: dict) -> list:
         """
         Main Entry Point: จัดการ Lifecycle ของ Browser และรวบรวมผลลัพธ์
@@ -377,22 +226,22 @@ class DOMScanner:
         findings = []
         self.logger.info(f"[*] Starting DOM Scan on: {url}")
         start_time = time.time()
+
         with sync_playwright() as p:
             # 1. Setup Browser
             browser = p.chromium.launch(channel="chrome", headless=False, slow_mo=100) # Debug Mode
             context = browser.new_context(ignore_https_errors=True)
             
-            # ใช้ Mutable Dict เพื่อแชร์ state ระหว่าง function และ event listener
-            scan_state = {"alert_triggered": False, "last_message": ""}
 
             try:
-                # 2. Setup Page & Listeners
-                page = self._setup_page(context, scan_state)
-                # 3. Run Logic
-                findings = self._run_scan_logic(page, url, params, scan_state, start_time)
+
+                page = self.handler.setup_page(context)
+           
+                findings = self._run_scan_logic(page, url, params, start_time)
+
             except Exception as e:
                 self.logger.error(f"[-] DOM Scan Critical Error: {e}")
-                self._take_debug_screenshot(page, "critical_error")
+
             finally:
                 if self.debug_mode:
                     self.logger.debug(f"[*] [DEBUG] Closing Browser session...")

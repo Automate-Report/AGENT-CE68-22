@@ -13,7 +13,7 @@ def test_xss():
     dom_scanner = DOMScanner()
 
     logger.info("[*] Crawler is running...")
-    target_url = "https://xss-game.appspot.com/level2/frame"
+    target_url = "http://testphp.vulnweb.com/search.php"
     # https://public-firing-range.appspot.com/address/index.html
     # http://testphp.vulnweb.com/search.php
     # https://xss-game.appspot.com/level2/frame

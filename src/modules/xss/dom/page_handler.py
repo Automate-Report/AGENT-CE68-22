@@ -1,0 +1,80 @@
+from playwright.sync_api import Page
+import base64
+import re
+from src.core.logger import setup_logger
+from .js_scripts import MONKEY_PATCH_SCRIPT
+
+class DOMPageHandler:
+    def __init__(self, debug_mode=False):
+        self.logger = setup_logger("DOMPageHandler")
+        self.debug_mode = debug_mode
+        self.scan_state = {
+            "alert_triggered": False,
+            "last_message": "",
+            "screenshot": None
+        }
+
+    def setup_page(self, context) -> Page:
+        """สร้าง Page พร้อมฝัง Script และ Event Listener"""
+        page = context.new_page()
+
+        # 1. Inject Monkey Patch
+        page.add_init_script(MONKEY_PATCH_SCRIPT)
+
+        # 2. Setup Console Listener
+        def handle_console(msg):
+            if "__XSS_DETECTED__" in msg.text:
+                clean_msg = msg.text.replace("__XSS_DETECTED__:", "")
+                self.logger.info(f"    [!!!] XSS Signal received: {clean_msg}")
+                
+                self.scan_state["alert_triggered"] = True
+                self.scan_state["last_message"] = clean_msg
+                
+                # รอให้ UI วาดเสร็จแล้วถ่ายรูป
+                try:
+                    page.wait_for_timeout(200)
+                    self.scan_state["screenshot"] = self._capture_screenshot(page)
+                except Exception as e:
+                    self.logger.error(f"Screenshot failed: {e}")
+
+        # 3. Handle Dialog (Backup)
+        page.on("dialog", lambda d: d.accept())
+        page.on("console", handle_console)
+
+        return page
+
+    def _capture_screenshot(self, page: Page) -> str:
+        """ถ่ายรูปแปลงเป็น Base64"""
+        try:
+            bytes_data = page.screenshot(type="jpeg", quality=70, full_page=False)
+            return base64.b64encode(bytes_data).decode('utf-8')
+        except Exception as e:
+            self.logger.error(f"[-] Failed to capture screenshot: {e}")
+            return None
+
+    def handle_popups(self, page: Page):
+        """ปิด Popup กวนใจ"""
+        if self.debug_mode: self.logger.info("      [..] Handling Popups...")
+        keywords = ["Accept", "Allow", "Agree", "Dismiss", "Close", "OK"]
+        for word in keywords:
+            try:
+                btn = page.get_by_role("button", name=re.compile(word, re.IGNORECASE))
+                if btn.count() > 0 and btn.first.is_visible():
+                    btn.first.click(timeout=500)
+            except: pass
+
+    def reset_state(self):
+        """ล้างค่าสถานะสำหรับ URL/Param ใหม่"""
+        self.scan_state = {
+            "alert_triggered": False,
+            "last_message": "",
+            "screenshot": None
+        }
+        
+    def wait_for_inputs(self, page: Page):
+        """รอ Input Render"""
+        if self.debug_mode: self.logger.info("      [..] Waiting for inputs...")
+        try:
+            page.wait_for_selector("input", state="visible", timeout=5000)
+        except:
+            if self.debug_mode: self.logger.warning("      [!] Page load slow or no inputs.")

@@ -2,6 +2,7 @@
 from playwright.sync_api import sync_playwright, Page, Locator
 import re
 import time
+import base64
 
 
 from src.core.logger import setup_logger
@@ -16,6 +17,45 @@ class DOMScanner:
         ]
         self.debug_mode = True
         self.scan_timeout = 60
+
+    def _capture_evidence(self, page: Page) -> str:
+        """
+        ถ่าย Screenshot แล้วแปลงเป็น Base64 String เพื่อส่งผ่าน API
+        """
+        try:
+            # ใช้ jpeg quality 70 เพื่อลดขนาดไฟล์ (ส่งผ่าน Network จะได้ไม่หนัก)
+            screenshot_bytes = page.screenshot(type="jpeg", quality=70, full_page=False)
+            base64_str = base64.b64encode(screenshot_bytes).decode('utf-8')
+            return base64_str
+        except Exception as e:
+            self.logger.error(f"[-] Failed to capture screenshot: {e}")
+            return None
+
+    def _setup_page(self, context, scan_state: dict) -> Page:
+        page = context.new_page()
+
+        def handle_dialog(dialog):
+            self.logger.info(f"    [!!!] DOM XSS ALERT DETECTED: {dialog.message}")
+            scan_state["alert_triggered"] = True
+            scan_state["last_message"] = dialog.message
+            
+            # [NEW] ถ่ายรูปทันทีที่ Alert เด้ง!
+            # หมายเหตุ: Playwright อาจถ่ายไม่ติดตัว Popup Alert (เพราะเป็น Native OS) 
+            # แต่จะถ่ายติดหน้าเว็บเบื้องหลัง ซึ่งเพียงพอแล้วสำหรับการเป็นหลักฐาน DOM State
+            scan_state["screenshot"] = self._capture_evidence(page)
+
+            try: 
+                dialog.accept()
+            except: 
+                pass
+        
+        def handle_console(msg):
+            if self.debug_mode and msg.type in ["error", "warning"]:
+                pass
+
+        page.on("dialog", handle_dialog)
+        page.on("console", handle_console)
+        return page
     
     def _fuzz_url_fragments(self, page: Page, url: str, scan_state: dict):
         """
@@ -98,7 +138,6 @@ class DOMScanner:
         # Navigate
         try:
             if self.debug_mode: 
-                # print(f"    [DEBUG] Navigating to {url}...")
                 self.logger.debug(f"    [DEBUG] Navigating to {url}...")
             page.goto(url, wait_until="networkidle", timeout=15000)
         except:
@@ -108,40 +147,34 @@ class DOMScanner:
         self._handle_popups(page)
         self._wait_for_inputs(page)
 
-        # -------------------------------------------------------------
-        # PHASE 1: URL Source Fuzzing (โจมตีผ่าน URL ก่อนเลย)
-        # -------------------------------------------------------------
+        # --- PHASE 1: URL Source Fuzzing ---
         self._fuzz_url_fragments(page, url, scan_state)
 
         if scan_state["alert_triggered"]:
             findings.append({
                 "url": url,
-                "param": "URL_FRAGMENT", # ระบุว่าเจอที่ URL
+                "param": "URL_FRAGMENT",
                 "payload": "Multiple",
                 "context": "DOM_BASED (Source)",
                 "confirmed": True,
-                "details": scan_state["last_message"]
+                "details": scan_state["last_message"],
+                # [NEW] แนบรูปไปด้วย
+                "screenshot": scan_state.get("screenshot") 
             })
             self.logger.info(f"       [!!!] Vulnerability Found via URL Fragment!")
-            # ถ้าเจอแล้ว จะหยุดเลยหรือไปต่อก็ได้ (แนะนำให้ return เลยเพื่อความเร็ว)
             return findings 
 
-        # -------------------------------------------------------------
-        # PHASE 2: Input Fuzzing (โจมตีผ่าน Input Box - Logic เดิม)
-        # -------------------------------------------------------------
-
-        # Attack Loop
+        # --- PHASE 2: Input Fuzzing ---
         for param_key in params.keys():
             if time.time() - start_time > self.scan_timeout:
-                print(f"    [!] [DEBUG] Scan timeout exceeded ({self.scan_timeout}s). Stopping.")
                 break
 
             if scan_state["alert_triggered"]: break
 
             self.logger.info(f"    -> Testing Parameter: {param_key}")
-            scan_state["alert_triggered"] = False # Reset flag per param
+            scan_state["alert_triggered"] = False # Reset flag
+            scan_state["screenshot"] = None       # Reset screenshot
 
-            # ส่งหน้าที่ให้ฟังก์ชันย่อยจัดการ Element
             is_vulnerable = self._process_input(page, param_key)
 
             if is_vulnerable or scan_state["alert_triggered"]:
@@ -151,10 +184,12 @@ class DOMScanner:
                     "payload": "Multiple (DOM)",
                     "context": "DOM_BASED",
                     "confirmed": True,
-                    "details": scan_state["last_message"]
+                    "details": scan_state["last_message"],
+                    # [NEW] แนบรูปไปด้วย
+                    "screenshot": scan_state.get("screenshot")
                 })
                 self.logger.info(f"       [+] Vulnerability Recorded for {param_key}")
-                break # เจอแล้วหยุด URL นี้
+                break 
 
         return findings
 

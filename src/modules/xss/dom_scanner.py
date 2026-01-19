@@ -34,71 +34,77 @@ class DOMScanner:
     def _setup_page(self, context, scan_state: dict) -> Page:
         page = context.new_page()
 
+        # 1. [NEW] ฝัง Script ตั้งแต่เริ่มโหลดหน้าเว็บ (Monkey Patch)
+        # เขียนทับ function alert, confirm, prompt ของ Browser
+        page.add_init_script("""
+            window.alert = function(msg) {
+                // เรียกใช้ฟังก์ชันวาดกล่องแดงที่เราเตรียมไว้
+                drawFakeAlert('alert', msg);
+                // ส่งสัญญาณลับบอก Playwright
+                console.log('__XSS_DETECTED__:' + msg);
+            };
+
+            window.confirm = function(msg) {
+                drawFakeAlert('confirm', msg);
+                console.log('__XSS_DETECTED__:' + msg);
+                return true; // Auto accept
+            };
+
+            window.prompt = function(msg) {
+                drawFakeAlert('prompt', msg);
+                console.log('__XSS_DETECTED__:' + msg);
+                return "test"; // Return dummy value
+            };
+
+            // ฟังก์ชันวาดกล่องแดง (ประกาศไว้ใน Global Scope)
+            window.drawFakeAlert = function(type, msg) {
+                const div = document.createElement('div');
+                div.style.cssText = `
+                    position: fixed !important;
+                    top: 10px !important;
+                    left: 50% !important;
+                    transform: translateX(-50%) !important;
+                    background-color: #ffcccc !important;
+                    border: 3px solid red !important;
+                    color: red !important;
+                    padding: 20px !important;
+                    font-weight: bold !important;
+                    font-size: 16px !important;
+                    z-index: 2147483647 !important;
+                    box-shadow: 0 10px 20px rgba(0,0,0,0.5) !important;
+                `;
+                div.innerText = '🚨 DOM XSS (' + type + '): ' + msg;
+                document.body.appendChild(div);
+            };
+        """)
+
+        # 2. ไม่ต้องใช้ handle_dialog แล้ว (เพราะเราเขียนทับ alert ไปแล้ว Popup จริงจะไม่เด้ง)
+        # แต่ใส่ไว้กันเหนียว เผื่อมีบางอันหลุดมา
         def handle_dialog(dialog):
-            self.logger.info(f"    [!!!] DOM XSS ALERT DETECTED: {dialog.message}")
-            scan_state["alert_triggered"] = True
-            scan_state["last_message"] = dialog.message
-            
-            # -----------------------------------------------------------
-            # [TRICK] สร้าง Fake Alert บนหน้าจอ เพื่อให้ถ่ายรูปติด
-            # -----------------------------------------------------------
-            try:
-                page.evaluate(f"""
-                    () => {{
-                        // 1. เช็คว่าเอกสารมีที่ให้เกาะไหม (Body หรือ HTML)
-                        const root = document.body || document.documentElement;
-                        if (!root) return;
+            try: dialog.accept()
+            except: pass
 
-                        const div = document.createElement('div');
-                        
-                        // 2. ใช้ !important เพื่อบังคับทับ CSS ของเว็บ
-                        div.style.cssText = `
-                            position: fixed !important;
-                            top: 10px !important;
-                            left: 50% !important;
-                            transform: translateX(-50%) !important;
-                            background-color: #ffcccc !important;
-                            border: 3px solid red !important;
-                            color: red !important;
-                            padding: 20px !important;
-                            font-weight: bold !important;
-                            font-family: sans-serif !important;
-                            font-size: 16px !important;
-                            border-radius: 8px !important;
-                            box-shadow: 0 10px 20px rgba(0,0,0,0.5) !important;
-                            
-                            // 3. ใช้ค่า Max Integer ของ Z-Index
-                            z-index: 2147483647 !important; 
-                            
-                            // 4. ป้องกันการคลิกไม่โดน (ให้มันลอยเหนือทุกสิ่ง)
-                            pointer-events: none !important;
-                        `;
-
-                        div.innerText = '🚨 DOM XSS DETECTED!\\nPayload: "{dialog.message}"';
-                        
-                        root.appendChild(div);
-                    }}
-                """)
-                page.wait_for_timeout(100)
-            except Exception as e:
-                # ถ้า Inject ไม่เข้าจริงๆ ก็แค่ข้ามไป (ยังไงเราก็ได้ log แล้ว)
-                self.logger.warning(f"       [!] Could not inject fake alert UI: {e}")
-            # -----------------------------------------------------------
-
-            # ถ่ายรูป (คราวนี้จะติดกล่องแดงๆ ที่เราสร้างขึ้น)
-            scan_state["screenshot"] = self._capture_evidence(page)
-
-            try: 
-                dialog.accept()
-            except: 
-                pass
-        
+        # 3. [NEW] เปลี่ยนมาดักจับที่ Console แทน
         def handle_console(msg):
-            if self.debug_mode and msg.type in ["error", "warning"]:
-                pass
+            # เช็คสัญญาณลับที่เราส่งมาจากข้างบน
+            if "__XSS_DETECTED__" in msg.text:
+                # แยกข้อความออกมา
+                clean_msg = msg.text.replace("__XSS_DETECTED__:", "")
+                
+                self.logger.info(f"    [!!!] DOM XSS DETECTED (via Console Hook): {clean_msg}")
+                
+                scan_state["alert_triggered"] = True
+                scan_state["last_message"] = clean_msg
+                
+                # ถ่ายรูปได้เลย! (หน้าเว็บไม่ค้างแล้ว)
+                try:
+                    scan_state["screenshot"] = self._capture_evidence(page)
+                except Exception as e:
+                    self.logger.error(f"Screenshot failed: {e}")
 
         page.on("dialog", handle_dialog)
-        page.on("console", handle_console)
+        page.on("console", handle_console) # พระเอกตัวจริง
+        
         return page
     
     def _fuzz_url_fragments(self, page: Page, url: str, scan_state: dict):

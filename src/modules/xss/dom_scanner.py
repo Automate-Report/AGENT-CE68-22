@@ -170,6 +170,8 @@ class DOMScanner:
         self._fuzz_url_fragments(page, url, scan_state)
 
         if scan_state["alert_triggered"]:
+            self.logger.info("       [..] Alert detected! Waiting for evidence capture...")
+            time.sleep(2)
             findings.append({
                 "url": url,
                 "param": "URL_FRAGMENT",
@@ -197,6 +199,11 @@ class DOMScanner:
             is_vulnerable = self._process_input(page, param_key)
 
             if is_vulnerable or scan_state["alert_triggered"]:
+                # [FIX] เพิ่มการรอตรงนี้ครับ!
+                # รอให้ handle_dialog ทำงานเสร็จ (Inject UI + Screenshot) ก่อนที่จะปิด Browser
+                self.logger.info("       [..] Alert detected! Waiting for evidence capture...")
+                time.sleep(2) 
+
                 findings.append({
                     "url": url,
                     "param": param_key,
@@ -204,11 +211,10 @@ class DOMScanner:
                     "context": "DOM_BASED",
                     "confirmed": True,
                     "details": scan_state["last_message"],
-                    # [NEW] แนบรูปไปด้วย
                     "screenshot": scan_state.get("screenshot")
                 })
                 self.logger.info(f"       [+] Vulnerability Recorded for {param_key}")
-                break 
+                break
 
         return findings
 
@@ -367,7 +373,7 @@ class DOMScanner:
         start_time = time.time()
         with sync_playwright() as p:
             # 1. Setup Browser
-            browser = p.chromium.launch(channel="chrome", headless=True, slow_mo=100) # Debug Mode
+            browser = p.chromium.launch(channel="chrome", headless=False, slow_mo=100) # Debug Mode
             context = browser.new_context(ignore_https_errors=True)
             
             # ใช้ Mutable Dict เพื่อแชร์ state ระหว่าง function และ event listener

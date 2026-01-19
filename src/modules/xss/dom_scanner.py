@@ -42,14 +42,29 @@ class DOMScanner:
         ]
 
         for payload in url_payloads:
-            if self.handler.scan_state["alert_triggered"]: return
+            # เช็คก่อนเริ่มรอบใหม่
+            if self.handler.scan_state["alert_triggered"]: 
+                return None # หรือ return ตัวก่อนหน้า (แต่ปกติ logic นี้จะไม่เกิดถ้า break ทัน)
 
             try:
                 target_url = f"{url}{payload}" if "?" not in url else f"{url}&{payload[1:]}"
+                
+                # Navigate
                 page.goto(target_url, wait_until="domcontentloaded", timeout=3000)
-                if "#" in payload: page.reload(timeout=3000)
+                
+                # Trigger Special Case
+                if "#" in payload: 
+                    page.reload(timeout=3000)
+                
                 page.wait_for_timeout(500)
+                
+                # [FIX] เช็คผลทันที ถ้าเจอให้ส่ง Payload กลับไป
+                if self.handler.scan_state["alert_triggered"]:
+                    return payload
+
             except: pass
+            
+        return None
     
     def _run_scan_logic(self, page: Page, url: str, params: dict, start_time: float) -> list:
         """
@@ -71,10 +86,19 @@ class DOMScanner:
 
         # --- PHASE 1: URL Source Fuzzing ---
         self.handler.reset_state()
-        self._fuzz_url_fragments(page, url)
+        found_fragment = self._fuzz_url_fragments(page, url)
 
         if self.handler.scan_state["alert_triggered"]:
-            findings.append(self._create_finding_dict(url, param, "DOM_BASED", payload))
+            # [FIX] ใช้ payload ที่รับมา หรือใช้ Default
+            final_payload = found_fragment if found_fragment else "Multiple (Fragment)"
+            
+            # [FIX] param ต้องระบุเอง เพราะไม่ได้อยู่ใน loop params
+            findings.append(self._create_finding_dict(
+                url, 
+                "URL_FRAGMENT", 
+                "DOM_BASED (Source)", 
+                payload=final_payload
+            ))
             self.logger.info(f"       [!!!] Vulnerability Found via URL Fragment!")
             return findings
 

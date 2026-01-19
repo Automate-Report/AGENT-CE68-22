@@ -13,7 +13,7 @@ def test_xss():
     dom_scanner = DOMScanner()
 
     logger.info("[*] Crawler is running...")
-    target_url = "https://xss-game.appspot.com/level2/frame"
+    target_url = "https://pentest-ground.com:4280/"
     # https://public-firing-range.appspot.com/address/index.html
     # http://testphp.vulnweb.com/search.php
     # https://xss-game.appspot.com/level2/frame
@@ -21,7 +21,8 @@ def test_xss():
 
     crawled_targets = crawler.crawl(target_url)
     logger.info(f"[*] Found {len(crawled_targets)} targets. Starting Scans...")
-
+    url_attacked = []
+    
     for t in crawled_targets:
         url = t['url']
         params = t.get('params', {})
@@ -32,6 +33,7 @@ def test_xss():
         findings_reflected = reflected_scanner.scan(url, params)
         if findings_reflected:
             logger.info(f"[!!!] VULNERABILITY FOUND at {url}")
+            url_attacked.append(url)
             for f in findings_reflected:
                 logger.info(f"   -> Payload: {f['payload']}")
                 logger.info(f"   -> Context: {f['context']}")
@@ -44,6 +46,7 @@ def test_xss():
         findings_dom = dom_scanner.scan(url, params)
         if findings_dom:
             logger.info(f"    🚨 DOM XSS Found!")
+            url_attacked.append(url)
             for f in findings_dom:
                 logger.info(f"   -> Payload: {f['payload']}")
                 logger.info(f"   -> Context: {f['context']}")
@@ -52,5 +55,8 @@ def test_xss():
         else:
             logger.info(f"[-] Clean: {url}")
 
+    print(url_attacked)
     return True
+
+    
 

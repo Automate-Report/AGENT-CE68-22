@@ -3,14 +3,24 @@ import os
 
 def get_resource_path(relative_path):
     """
-    ฟังก์ชันนี้จะหา Path ที่ถูกต้องให้เอง
-    - ถ้าเป็น Dev Mode: จะหาจากโฟลเดอร์โปรเจกต์
-    - ถ้าเป็น EXE Mode: จะหาจากโฟลเดอร์ Temp ที่ EXE แตกไฟล์ออกมา (_MEIPASS)
+    หา Path ที่ถูกต้อง รองรับทั้ง Dev Mode (รันด้วย Python) และ EXE Mode (PyInstaller)
     """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
+    if getattr(sys, 'frozen', False):
+        # --- กรณี EXE Mode ---
+        # หาจากโฟลเดอร์ Temp ที่ EXE แตกไฟล์ออกมา
         base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
+    else:
+        # --- กรณี Dev Mode ---
+        # หาจากที่อยู่ของไฟล์นี้ (path_helper.py) แล้วถอยกลับไปหา Root Project
+        # สมมติไฟล์นี้อยู่ Z:\Thesis\...\utils\path_helper.py
+        
+        # 1. หา path ของไฟล์นี้
+        current_file_path = os.path.abspath(__file__)
+        
+        # 2. ถอยออกมา 1 ขั้น (ได้โฟลเดอร์ utils)
+        utils_dir = os.path.dirname(current_file_path)
+        
+        # 3. ถอยอีก 1 ขั้น (ได้โฟลเดอร์โปรเจกต์หลัก AGENT-CE68-22)
+        base_path = os.path.dirname(utils_dir)
 
     return os.path.join(base_path, relative_path)

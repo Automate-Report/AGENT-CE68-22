@@ -1,69 +1,133 @@
 #Platwright check alert
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Page
 from src.core.logger import setup_logger
+import base64
 
 class XSSVerifier:
     def __init__(self):
         # ตั้งค่า Log
         self.logger = setup_logger("XSS Verifier")
 
-    def verify(self, url: str, timeout: int = 5000) -> bool:
+
+    def _capture_evidence(self, page: Page) -> str:
         """
-        เปิด Browser จริงๆ เพื่อตรวจสอบว่า alert() เด้งขึ้นมาหรือไม่
+        ถ่าย Screenshot และแปลงเป็น Base64 String
+        """
+        try:
+            # ใช้ jpeg quality 70 เพื่อลดขนาดไฟล์
+            screenshot_bytes = page.screenshot(type="jpeg", quality=70, full_page=False)
+            return base64.b64encode(screenshot_bytes).decode('utf-8')
+        except Exception as e:
+            self.logger.error(f"[-] Screenshot failed: {e}")
+            return None
+
+    def verify(self, url: str, timeout: int = 10000) -> dict:
+        """
+        เปิด Browser ไปที่ URL เพื่อดูว่า Alert เด้งจริงไหม (พร้อมถ่ายรูป)
         
-        Args:
-            url (str): URL ที่มี Payload ฝังอยู่แล้ว (Full Attack URL)
-            timeout (int): เวลาสูงสุดที่จะรอ (millisecond)
-            
         Returns:
-            bool: True ถ้ามี Alert เด้ง (XSS สำเร็จ), False ถ้าเงียบ
+            dict: { "confirmed": bool, "screenshot": str (Base64) or None }
         """
-        is_vulnerable = False
+        result = {
+            "confirmed": False, 
+            "screenshot": None
+        }
 
         try:
             with sync_playwright() as p:
-                # 1. Launch Browser (Headless = ไม่ต้องโชว์หน้าต่าง GUI เพื่อความเร็ว)
-                browser = p.chromium.launch(headless=True)
+                # [FIX 1] ใช้ channel="chrome" เพื่อแก้ปัญหา EXE หา Browser ไม่เจอ
+                browser = p.chromium.launch(channel="chrome", headless=True)
                 
-                # สร้าง Context (เหมือนเปิด Incognito ใหม่ทุกครั้ง เพื่อความชัวร์)
                 context = browser.new_context(ignore_https_errors=True)
                 page = context.new_page()
 
-                # --- หัวใจสำคัญ: ดักจับ Event 'dialog' ---
-                # ถ้ามี alert(), confirm(), prompt() เด้งขึ้นมา ฟังก์ชันนี้จะทำงานทันที
-                def handle_dialog(dialog):
-                    nonlocal is_vulnerable
-                    # เช็คข้อความใน alert ด้วยก็ได้ ถ้า payload เราใส่ alert(1) หรือ alert('XSS')
-                    # if dialog.message == '1': 
-                    self.logger.info(f"    [VERIFIER] 🚨 Alert Dialog Detected! Message: {dialog.message}")
-                    is_vulnerable = True
-                    
-                    # กด OK เพื่อปิด Alert ไม่ให้ Browser ค้าง
-                    dialog.accept()
+                # [FIX 2] Monkey Patching: เขียนทับ alert() เพื่อให้ถ่ายรูปติด
+                # โค้ดนี้จะรันก่อนที่หน้าเว็บจะโหลด (Pre-injection)
+                page.add_init_script("""
+                    // ฟังก์ชันวาดกล่องแดง
+                    window.drawFakeAlert = function(type, msg) {
+                        const root = document.body || document.documentElement;
+                        if (!root) return;
+                        
+                        const div = document.createElement('div');
+                        div.style.cssText = `
+                            position: fixed !important;
+                            top: 20px !important;
+                            left: 50% !important;
+                            transform: translateX(-50%) !important;
+                            background-color: #ffcccc !important;
+                            border: 3px solid red !important;
+                            color: red !important;
+                            padding: 20px !important;
+                            font-weight: bold !important;
+                            font-size: 16px !important;
+                            font-family: sans-serif !important;
+                            z-index: 2147483647 !important;
+                            box-shadow: 0 10px 20px rgba(0,0,0,0.5) !important;
+                        `;
+                        div.innerText = '🚨 REFLECTED XSS CONFIRMED!\\nPayload Executed: ' + msg;
+                        root.appendChild(div);
+                    };
 
-                # ผูก Event Listener
+                    // เขียนทับ alert, confirm, prompt
+                    window.alert = function(msg) {
+                        window.drawFakeAlert('Alert', msg);
+                        console.log('__XSS_CONFIRMED__:' + msg); // ส่งสัญญาณลับ
+                    };
+                    window.confirm = function(msg) {
+                        window.drawFakeAlert('Confirm', msg);
+                        console.log('__XSS_CONFIRMED__:' + msg);
+                        return true;
+                    };
+                    window.prompt = function(msg) {
+                        window.drawFakeAlert('Prompt', msg);
+                        console.log('__XSS_CONFIRMED__:' + msg);
+                        return "test";
+                    };
+                """)
+
+                # [FIX 3] ดักจับสัญญาณจาก Console แทน Dialog
+                def handle_console(msg):
+                    if "__XSS_CONFIRMED__" in msg.text:
+                        clean_msg = msg.text.replace("__XSS_CONFIRMED__:", "")
+                        self.logger.info(f"    [VERIFIER] 🚨 XSS Confirmed via Console: {clean_msg}")
+                        
+                        result["confirmed"] = True
+                        
+                        # รอเสี้ยววินาทีให้กล่องแดงวาดเสร็จ
+                        try:
+                            page.wait_for_timeout(200) 
+                            result["screenshot"] = self._capture_evidence(page)
+                        except Exception as e:
+                            self.logger.error(f"Error capturing screenshot: {e}")
+
+                # เผื่อ dialog หลุดมา (เช่น alert ที่ทำงานก่อน init script ในบางเคสหายาก)
+                def handle_dialog(dialog):
+                    self.logger.info(f"    [VERIFIER] Dialog detected (Native): {dialog.message}")
+                    result["confirmed"] = True
+                    try: dialog.accept()
+                    except: pass
+
+                page.on("console", handle_console)
                 page.on("dialog", handle_dialog)
 
-                # 2. ไปที่ URL เป้าหมาย
-                self.logger.info(f"    [VERIFIER] Navigating to: {url}")
+                # --- เริ่ม Load หน้าเว็บ ---
+                self.logger.info(f"    [VERIFIER] Navigating to: {url[:80]}...") # ตัด URL ยาวๆ ออก
                 try:
-                    # waitUntil='load' คือรอให้หมุนติ้วๆ เสร็จ
-                    # timeout คือถ้านานเกินกำหนดให้ตัดจบ (กันเว็บค้าง)
+                    # Reflected XSS มักทำงานทันทีที่โหลดเสร็จ
                     page.goto(url, wait_until='load', timeout=timeout)
                     
-                    # รออีกนิดเผื่อเป็น DOM-based XSS ที่ทำงานช้า
-                    page.wait_for_timeout(1000) 
+                    # รอเพิ่มอีกนิดเผื่อ Script ทำงานช้า
+                    page.wait_for_timeout(2000)
                     
                 except Exception as e:
-                    # บางที alert เด้งแล้ว browser อาจจะตัด connection หรือ error
-                    # แต่ถ้า is_vulnerable เป็น True แล้ว ก็ถือว่าผ่าน
-                    if not is_vulnerable:
-                        self.logger.warning(f"    [VERIFIER] Error during navigation: {e}")
+                    # ถ้า Browser ตัดการเชื่อมต่อเพราะ Alert เด้งรัวๆ ก็ถือว่าปกติ
+                    if not result["confirmed"]:
+                        self.logger.warning(f"    [VERIFIER] Navigation ended with: {e}")
 
-                # 3. ปิด Browser
                 browser.close()
 
         except Exception as e:
             self.logger.error(f"    [VERIFIER] System Error: {e}")
 
-        return is_vulnerable
+        return result

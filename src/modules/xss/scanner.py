@@ -7,6 +7,7 @@ from src.modules.xss.verifier import XSSVerifier
 
 from src.core.requester import Requester
 from src.core.logger import setup_logger
+from src.core.report_builder import VulnerabilityBuilder
 
 from src.utils.load_file import load_file
 from src.utils.path_helper import get_resource_path
@@ -19,6 +20,7 @@ class XSSScanner(BaseScanner):
         self.analyzer = ContextAnalyzer()
         self.verifier = XSSVerifier()
         self.logger = setup_logger("XSSScanner")
+        self.report_builder = VulnerabilityBuilder()
         
         # จำลอง Payload (ของจริงควรโหลดจากไฟล์)
         self.payloads = {
@@ -47,6 +49,7 @@ class XSSScanner(BaseScanner):
 
             # 2. Step 2: เลือก Payload (Strategy)
             target_payloads = self._select_payloads(analysis_result)
+
             self.logger.info(f"    [*] Injection Phase: Testing {len(target_payloads)} payloads...")
 
             # 3. Step 3: โจมตีและตรวจสอบ (Attack & Verify)
@@ -175,19 +178,27 @@ class XSSScanner(BaseScanner):
                 
                 # 3. Active Verification: เอา URL จริงจาก response ส่งไปให้ Playwright (ช้าแต่ชัวร์)
                 # response.url คือ URL เต็มๆ ที่ถูก encode params เรียบร้อยแล้ว
-                is_confirmed = self.verifier.verify(response.url)
+                verify_result = self.verifier.verify(response.url)
                 
-                if is_confirmed:
+                if verify_result:
                     self.logger.info(f"       [!!!] CONFIRMED VULNERABILITY! (Alert Popped)")
                     self.logger.info(f"             Payload: {payload}")
+
+                    finding = self.report_builder.build(
+                        url=url,
+                        param=param_key,
+                        vuln_type="Reflected XSS",
+                        payload=payload,
+                        screenshot=verify_result["screenshot"], # รับรูปจาก Verifier
+                        
+                        # ข้อมูลเสริม
+                        details=f"Payload reflected in contexts: {contexts}",
+                        context=contexts[0] if contexts else "Unknown",
+                        response_obj=response, # ส่ง response object ไปดึง headers/status code
+                        method="GET"
+                    )
                     
-                    return {
-                        "url": response.url,  # เก็บ URL ที่ใช้โจมตีจริง
-                        "param": param_key,
-                        "payload": payload,
-                        "context": contexts,
-                        "confirmed": True
-                    }
+                    return finding
                 else:
                     self.logger.info(f"       [-] Verification Failed. Payload in source but script didn't run.")
         

@@ -64,15 +64,16 @@ def test_xss():
             logger.info(f"[!!!] VULNERABILITY FOUND at {url}")
             url_attacked.append(url)
             for f in findings_sqli:
-                logger.info(f"   -> Payload: {f['payload']}")
-                logger.info(f"   -> Type: {f['type']}")
-                logger.info(f"   -> Screenshot: {f['screenshot']}")
-                if f.get('confirmed'):
-                    logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
+                # logger.info(f"   -> Payload: {f['payload']}")
+                # logger.info(f"   -> Type: {f['type']}")
+                # logger.info(f"   -> Screenshot: {f['screenshot']}")
+                # if f.get('confirmed'):
+                #     logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
+                print(f)
         else:
             logger.info(f"[-] Clean: {url}")
 
-    print(url_attacked)
+    # print(findings_sqli)
     return True
 
 def test_sqli():

@@ -3,18 +3,19 @@ from playwright.sync_api import sync_playwright, Page, Locator
 import time
 
 from src.core.logger import setup_logger
+from src.core.report_builder import VulnerabilityBuilder
 from .dom.page_handler import DOMPageHandler
+
+from src.utils.load_file import load_file
+from src.utils.path_helper import get_resource_path
 
 class DOMScanner:
     def __init__(self):
         self.logger = setup_logger("XSS DOM Scanner")
         self.handler = DOMPageHandler(debug_mode=True)
+        self.report_builder = VulnerabilityBuilder()
 
-        self.payloads = [
-            "<img src=x onerror=alert(1)>", 
-            "<iframe src='javascript:alert(1)'></iframe>",
-            "\"><img src=x onerror=alert(1)>"
-        ]
+        self.payloads = load_file(get_resource_path('data/payloads/xss/body.txt'), self.logger)
         self.debug_mode = True
         self.scan_timeout = 60
     
@@ -73,60 +74,79 @@ class DOMScanner:
         self._fuzz_url_fragments(page, url)
 
         if self.handler.scan_state["alert_triggered"]:
-            findings.append(self._create_finding_dict(url, "URL_FRAGMENT", "Source-based"))
+            findings.append(self._create_finding_dict(url, param, "DOM_BASED", payload))
             self.logger.info(f"       [!!!] Vulnerability Found via URL Fragment!")
             return findings
 
         # --- PHASE 2: Input Fuzzing ---
         for param_key in params.keys():
-            if time.time() - start_time > self.scan_timeout:
-                break
-
+            if time.time() - start_time > self.scan_timeout: break
             if self.handler.scan_state["alert_triggered"]: break
 
             self.logger.info(f"    -> Testing Parameter: {param_key}")
-
             self.handler.reset_state()
 
-            self._process_input(page, param_key)
+            # [UPDATE] รับค่า Payload ที่ส่งกลับมา (จะเป็น String หรือ None)
+            found_payload = self._process_input(page, param_key)
 
+            # เช็คว่าเจอช่องโหว่ไหม (เช็คจาก state หรือ return value ก็ได้)
             if self.handler.scan_state["alert_triggered"]:
                 self.logger.info("       [..] Alert detected! Waiting for evidence capture...")
-                time.sleep(2) # รอ Handler ถ่ายรูปให้เสร็จชัวร์ๆ
+                time.sleep(2)
                 
-                findings.append(self._create_finding_dict(url, param_key, "DOM_BASED"))
-                self.logger.info(f"       [+] Vulnerability Recorded for {param_key}")
+                # [UPDATE] ใช้ found_payload ที่รับมา ถ้าไม่มีให้ใช้ค่า Default
+                final_payload = found_payload if found_payload else "Multiple/Unknown"
+
+                findings.append(self._create_finding_dict(
+                    url, 
+                    param_key, 
+                    "DOM_BASED", 
+                    payload=final_payload  # <--- ใส่ Payload จริงตรงนี้!
+                ))
+                
+                self.logger.info(f"       [+] Vulnerability Recorded for {param_key} using {final_payload}")
                 break 
 
         return findings
 
-    def _create_finding_dict(self, url, param, context):
-        """Helper function เพื่อสร้าง Dictionary ผลลัพธ์ให้เป็นระเบียบ"""
-        return {
-            "url": url,
-            "param": param,
-            "payload": "Multiple (DOM)",
-            "context": context,
-            "confirmed": True,
-            "details": self.handler.scan_state["last_message"],
-            "screenshot": self.handler.scan_state["screenshot"]
-        }
+    def _create_finding_dict(self, url, param, context, payload="Multiple (DOM)"):
+        """
+        [UPDATE] ใช้ Report Builder สร้าง Report มาตรฐาน
+        """
+        
+        # ดึงข้อมูลจาก Handler มาเตรียมไว้
+        alert_msg = self.handler.scan_state["last_message"]
+        screenshot = self.handler.scan_state["screenshot"]
+        
+        # เรียกใช้ Builder
+        finding = self.report_builder.build(
+            url=url,
+            param=param,
+            vuln_type="DOM XSS",  # ระบุประเภทให้ชัดเจน
+            payload=payload,      # ถ้าใน loop ส่ง payload ตัวที่เจอมาได้จะดีมาก
+            screenshot=screenshot,
+            
+            # --- ข้อมูลเสริม (kwargs) ---
+            details=f"Alert Message Detected: {alert_msg}",
+            context=context,      # ส่ง Context ไป (เช่น HTML Body)
+            method="GET",         # DOM ส่วนใหญ่เกิดจากการโหลดหน้า GET
+            response_obj=None     # DOM XSS ไม่มี HTTP Response Object แบบ requests
+        )
+        
+        return finding
 
-    def _process_input(self, page: Page, param_key: str) -> bool:
+    def _process_input(self, page: Page, param_key: str) -> str:
         """
-        Strategy: ลองหา Input ตามชื่อก่อน ถ้าไม่เจอให้ใช้ Fallback (Fuzz All)
+        [UPDATE] Return payload if found
         """
-        # 1. Try Specific Target
         target = self._find_specific_element(page, param_key)
         
         if target:
-            if self.debug_mode: 
-                self.logger.debug(f"       [DEBUG] Injecting payloads into: {target}")
-            self._inject_payloads(target, page)
+            # ถ้าเจอเป้าหมายเจาะจง ให้ส่งต่อผลลัพธ์จาก _inject_payloads
+            return self._inject_payloads(target, page)
         else:
-            self.logger.info(f"       [-] Specific input '{param_key}' not found. Switching to Fuzzing Mode...")
-            # 2. Fallback: Fuzz All Visible Inputs
-            self._fuzz_all_visible_inputs(page)
+            # ถ้าไม่เจอ ก็ส่งต่อผลลัพธ์จาก fuzz all
+            return self._fuzz_all_visible_inputs(page)
 
     def _find_specific_element(self, page: Page, param_key: str) -> Locator:
         """
@@ -148,35 +168,34 @@ class DOMScanner:
             except: continue
         return None
 
-    def _fuzz_all_visible_inputs(self, page: Page):
+    def _fuzz_all_visible_inputs(self, page: Page) -> str:
         """
-        ค้นหา Input ที่มองเห็นได้ทั้งหมด แล้วยิง Payload
+        [UPDATE] Return payload if found
         """
         try:
             inputs = page.locator("input:visible, textarea:visible").all()
-            # กรอง input ที่ไม่น่าสนใจออก
-            valid_inputs = [
-                inp for inp in inputs 
-                if inp.get_attribute("type") not in ["checkbox", "radio", "submit", "hidden", "button"]
-            ]
+            valid_inputs = [inp for inp in inputs if inp.get_attribute("type") not in ["checkbox", "radio", "submit", "hidden", "button"]]
 
-            if not valid_inputs:
-                self.logger.debug("       [!] [DEBUG] No visible inputs found to fuzz.")
-                self._take_debug_screenshot(page, "no_inputs_found")
-                return
-            
-            self.logger.info(f"       [!] Fuzzing {len(valid_inputs)} visible inputs...")
             for inp in valid_inputs:
-                self._inject_payloads(inp, page)
+                # รับค่าที่ส่งกลับมาจาก _inject_payloads
+                found_payload = self._inject_payloads(inp, page)
                 
+                if found_payload:
+                    return found_payload # ส่งต่อขึ้นไปอีก
+
         except Exception as e:
             self.logger.error(f"       [-] Fuzzing error: {e}")
+            
+        return None
 
     def _inject_payloads(self, locator: Locator, page: Page):
         """
         ทำการพิมพ์ Payload -> กด Enter -> และไล่กดปุ่ม Submit
         """
         for payload in self.payloads:
+            if self.handler.scan_state["alert_triggered"]:
+                return None
+            
             try:
                 # 1. พิมพ์ Payload
                 locator.fill("") 
@@ -190,8 +209,12 @@ class DOMScanner:
                 self._trigger_submit_buttons(page)
                 
                 page.wait_for_timeout(500) # รอ JS ทำงาน
+                if self.handler.scan_state["alert_triggered"]:
+                    return payload
             except:
                 pass
+
+        return None
 
     def _trigger_submit_buttons(self, page: Page):
         """

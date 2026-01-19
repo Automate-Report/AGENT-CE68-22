@@ -6,11 +6,13 @@ from playwright.sync_api import sync_playwright
 
 from src.core.requester import Requester
 from src.core.logger import setup_logger
+from src.core.report_builder import VulnerabilityBuilder
 
 class SQLiScanner:
     def __init__(self):
         self.logger = setup_logger("SQLi Scanner")
         self.requester = Requester()
+        self.report_builder = VulnerabilityBuilder()
         
         # --- CONFIGURATION ---
         self.time_threshold = 5.0  # วินาทีสำหรับ Time-based
@@ -107,8 +109,7 @@ class SQLiScanner:
                 
                 # ถ่ายรูปหลักฐาน
                 screenshot = self._capture_evidence(url, attack_params, mode="error", error_text=error_msg)
-                
-                findings.append(self._create_finding_dict(url, key, payload, "Error-Based", screenshot, error_msg))
+                findings.append(self._create_finding_dict(url, key, payload, "Error-Based", screenshot))
                 return True
         except: pass
         return False
@@ -166,7 +167,7 @@ class SQLiScanner:
                     
                     # ถ่ายรูปหลักฐาน (ถ่ายหน้าเว็บพร้อม Overlay เวลา)
                     screenshot = self._capture_evidence(url, attack_params, mode="time", duration=duration)
-                    
+
                     findings.append(self._create_finding_dict(url, key, payload, "Time-Based", screenshot))
                     return True
             except Exception: 
@@ -191,16 +192,20 @@ class SQLiScanner:
         self.logger.info(f"             Param: {param} | Payload: {payload}")
         if extra: self.logger.info(f"             Info: {extra}")
 
-    def _create_finding_dict(self, url, param, payload, type_name, screenshot, details=""):
-        return {
-            "url": url,
-            "param": param,
-            "payload": payload,
-            "type": type_name,
-            "confirmed": True,
-            "details": details,
-            "screenshot": screenshot
-        }
+    def _create_finding_dict(self, url, param, payload, type_name, screenshot, details="", res=""):
+        finding = self.report_builder.build(
+            url=url,
+            param=param,
+            vuln_type=type_name, # หรือ Time-Based SQLi
+            payload=payload,
+            screenshot=screenshot,
+            
+            # ส่งข้อมูลเสริม (kwargs)
+            details=details,
+            db_type="Unkonwn", # หรือค่าที่ detect ได้
+            response_obj=res # ส่ง requests response object ไปด้วย
+        )
+        return finding
 
     # =========================================================================
     # EVIDENCE (PLAYWRIGHT)

@@ -40,8 +40,8 @@ def main():
     # print(f"✅ [Cycle {n}] {result}")
 
     # time.sleep(settings.poll_interval)
-    # result = test_xss()
-    result = test_sqli()
+    result = test_xss()
+    # result = test_sqli()
 
     
 

@@ -12,6 +12,7 @@ def test_xss():
     reflected_scanner = XSSScanner()
     crawler = Crawler()
     dom_scanner = DOMScanner()
+    sqli_scanner = SQLiScanner()
 
     logger.info("[*] Crawler is running...")
     target_url = "http://testphp.vulnweb.com/search.php"
@@ -28,30 +29,43 @@ def test_xss():
         url = t['url']
         params = t.get('params', {})
 
-        logger.info(f"--- Analyzing: {url} ---")
+        # logger.info(f"--- Analyzing: {url} ---")
         
-        logger.info("[1] Running Reflected Scan...")
-        findings_reflected = reflected_scanner.scan(url, params)
-        if findings_reflected:
+        # logger.info("[1] Running Reflected Scan...")
+        # findings_reflected = reflected_scanner.scan(url, params)
+        # if findings_reflected:
+        #     logger.info(f"[!!!] VULNERABILITY FOUND at {url}")
+        #     url_attacked.append(url)
+        #     for f in findings_reflected:
+        #         logger.info(f"   -> Payload: {f['payload']}")
+        #         logger.info(f"   -> Context: {f['context']}")
+        #         logger.info(f"   -> Screenshot: {f['screenshot']}")
+        #         if f.get('confirmed'):
+        #             logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
+        # else:
+        #     logger.info(f"[-] Clean: {url}")
+        
+        # logger.info("[2] Running DOM Scan...")
+        # findings_dom = dom_scanner.scan(url, params)
+        # if findings_dom:
+        #     logger.info(f"    🚨 DOM XSS Found!")
+        #     url_attacked.append(url)
+        #     for f in findings_dom:
+        #         logger.info(f"   -> Payload: {f['payload']}")
+        #         logger.info(f"   -> Context: {f['context']}")
+        #         logger.info(f"   -> Screenshot: {f['screenshot']}")
+        #         if f.get('confirmed'):
+        #             logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
+        # else:
+        #     logger.info(f"[-] Clean: {url}")
+        logger.info("[1] Running SQLi Scan...")
+        findings_sqli = sqli_scanner.scan(url, params)
+        if findings_sqli:
             logger.info(f"[!!!] VULNERABILITY FOUND at {url}")
             url_attacked.append(url)
-            for f in findings_reflected:
+            for f in findings_sqli:
                 logger.info(f"   -> Payload: {f['payload']}")
-                logger.info(f"   -> Context: {f['context']}")
-                logger.info(f"   -> Screenshot: {f['screenshot']}")
-                if f.get('confirmed'):
-                    logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
-        else:
-            logger.info(f"[-] Clean: {url}")
-        
-        logger.info("[2] Running DOM Scan...")
-        findings_dom = dom_scanner.scan(url, params)
-        if findings_dom:
-            logger.info(f"    🚨 DOM XSS Found!")
-            url_attacked.append(url)
-            for f in findings_dom:
-                logger.info(f"   -> Payload: {f['payload']}")
-                logger.info(f"   -> Context: {f['context']}")
+                logger.info(f"   -> Type: {f['type']}")
                 logger.info(f"   -> Screenshot: {f['screenshot']}")
                 if f.get('confirmed'):
                     logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
@@ -64,5 +78,6 @@ def test_xss():
 def test_sqli():
     sqli_scanner = SQLiScanner()
     results = sqli_scanner.scan("http://testphp.vulnweb.com/listproducts.php", {"cat": "1"})
+
     return results
 

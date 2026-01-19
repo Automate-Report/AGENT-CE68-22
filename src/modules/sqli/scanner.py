@@ -1,185 +1,272 @@
 import re
 import time
 import urllib.parse
-from playwright.sync_api import sync_playwright
 import base64
+from playwright.sync_api import sync_playwright
 
 from src.core.requester import Requester
 from src.core.logger import setup_logger
-from src.utils.load_file import load_file
-from src.utils.path_helper import get_resource_path
 
 class SQLiScanner:
     def __init__(self):
         self.logger = setup_logger("SQLi Scanner")
         self.requester = Requester()
         
-        # 1. Payloads: เน้น Error-Based เพื่อให้เห็นผลชัดเจน (เอาไว้ทำ Screenshot)
-        # ของจริงควรโหลดจากไฟล์ data/payloads/sqli/error_based.txt
-        self.payloads = [
-            "'", 
-            "\"", 
-            "';", 
-            "')", 
-            "' OR '1'='1",
-            "admin' --",
-            "' UNION SELECT 1, @@version -- "
-        ]
+        # --- CONFIGURATION ---
+        self.time_threshold = 5.0  # วินาทีสำหรับ Time-based
         
-        # 2. Database Error Signatures (ลายเซ็น Error ของแต่ละ DB)
-        self.error_signatures = {
-            "MySQL": [
-                r"SQL syntax.*MySQL",
-                r"Warning.*mysql_",
-                r"valid MySQL result",
-                r"MySqlClient\.",
+        # 1. Payloads Components (เอาไว้ผสมกัน)
+        # Prefix: ตัวปิดประโยคหน้า
+        self.prefixes = ["", "'", '"', ")", "')", '")']
+        
+        # Suffix: ตัวคอมเมนต์ปิดท้าย
+        self.suffixes = ["", "-- -", "#", ";--"]
+        
+        # Payloads ตามประเภท
+        self.payloads_logic = {
+            "BOOLEAN": [
+                (" AND 1=1", " AND 1=0"),           # Numeric
+                ("' AND '1'='1", "' AND '1'='0"),   # String Single Quote
+                ('" AND "1"="1', '" AND "1"="0')    # String Double Quote
             ],
-            "PostgreSQL": [
-                r"PostgreSQL.*ERROR",
-                r"Warning.*\Wpg_",
-                r"valid PostgreSQL result",
-                r"Npgsql\.",
-            ],
-            "Microsoft SQL Server": [
-                r"Driver.* SQL[\-\_\ ]*Server",
-                r"OLE DB.* SQL Server",
-                r"\bSQL Server[^&lt;&quot;]+Driver",
-                r"Warning.*mssql_",
-                r"\bSqlException\b",
-            ],
-            "Oracle": [
-                r"\bORA-[0-9][0-9][0-9][0-9]",
-                r"Oracle error",
-                r"Oracle.*Driver",
-            ],
-            "Generic": [
-                r"You have an error in your SQL syntax",
-                r"Unclosed quotation mark",
-                r"quoted string not properly terminated",
+            "TIME": [
+                " SLEEP(5)",                # MySQL
+                " WAITFOR DELAY '0:0:5'",   # MSSQL
+                " pg_sleep(5)"              # PostgreSQL
             ]
+        }
+        
+        # Error Signatures (เหมือนเดิม)
+        self.error_signatures = {
+            "MySQL": [r"SQL syntax.*MySQL", r"Warning.*mysql_"],
+            "PostgreSQL": [r"PostgreSQL.*ERROR", r"Warning.*\Wpg_"],
+            "MSSQL": [r"Driver.* SQL[\-\_\ ]*Server", r"OLE DB.* SQL Server"],
+            "Oracle": [r"\bORA-[0-9][0-9][0-9][0-9]"],
+            "Generic": [r"You have an error in your SQL syntax", r"Unclosed quotation mark"]
         }
 
     def scan(self, url: str, params: dict) -> list:
-        """
-        Main Logic: ยิง Request -> เช็ค Error Text -> ถ้าเจอเรียก Playwright มาถ่ายรูป
-        """
         findings = []
         self.logger.info(f"[*] Starting SQLi Scan on: {url}")
 
-        if not params:
-            return findings
+        if not params: return findings
 
-        for param_key, original_value in params.items():
+        # Loop Parameter ทีละตัว
+        for param_key in params.keys():
             self.logger.info(f"    -> Testing Parameter: {param_key}")
             
-            for payload in self.payloads:
-                # สร้าง Params สำหรับโจมตี
-                attack_params = params.copy()
-                attack_params[param_key] = payload
-                
-                try:
-                    # 1. ยิง Request (ใช้ Requester ปกติ เร็ว!)
-                    response = self.requester.get(url, params=attack_params)
-                    
-                    # 2. ตรวจสอบว่า Response มี Error Database ไหม
-                    matched_db, error_msg = self._check_error_signatures(response.text)
-                    
-                    if matched_db:
-                        self.logger.info(f"       [!!!] Potential SQLi Found! ({matched_db})")
-                        self.logger.info(f"             Payload: {payload}")
-                        
-                        # 3. VERIFICATION & EVIDENCE
-                        # เรียก Playwright มาเปิดดูของจริง + ถ่ายรูป Highlight Error
-                        proof_data = self._verify_and_capture(response.url, error_msg)
-                        
-                        findings.append({
-                            "url": url,
-                            "param": param_key,
-                            "payload": payload,
-                            "type": "Error-Based SQLi",
-                            "db_type": matched_db,
-                            "confirmed": True,
-                            "evidence_snippet": error_msg,
-                            "screenshot": proof_data.get("screenshot")
-                        })
-                        
-                        # เจอ 1 Payload ที่ทำ Error ได้ ก็หยุด Param นี้เลย (พอแล้ว)
-                        break 
-                        
-                except Exception as e:
-                    self.logger.error(f"       [-] Request error: {e}")
+            # --- 1. Baseline Check (เก็บค่าปกติไว้เทียบ) ---
+            try:
+                original_res = self.requester.get(url, params=params)
+                baseline_len = len(original_res.text)
+                baseline_time = original_res.elapsed.total_seconds()
+            except:
+                continue # ถ้าขอหน้าปกติยังพัง ก็ข้ามไป
+
+            # --- 2. Start Injection Loop ---
+            # เราจะวนลูป Prefix/Suffix เพื่อสร้าง Payload ที่หลากหลาย
+            found_in_param = False
+            
+            for prefix in self.prefixes:
+                if found_in_param: break
+                for suffix in self.suffixes:
+                    if found_in_param: break
+
+                    # 2.1 Test Error-Based (เร็วสุด เช็คก่อน)
+                    # Payload:  prefix + "'" + suffix
+                    if self._check_error_based(url, params, param_key, prefix, suffix, findings):
+                        found_in_param = True; break
+
+                    # 2.2 Test Boolean-Based (เช็คความต่าง)
+                    if self._check_boolean_based(url, params, param_key, prefix, suffix, baseline_len, findings):
+                        found_in_param = True; break
+
+                    # 2.3 Test Time-Based (ช้าสุด เช็คทีหลัง)
+                    if self._check_time_based(url, params, param_key, prefix, suffix, findings):
+                        found_in_param = True; break
 
         return findings
 
-    def _check_error_signatures(self, content: str) -> tuple:
-        """
-        เช็คว่าใน Response Body มีข้อความ Error ที่เรารู้จักไหม
-        Returns: (DB_Type, Matched_String)
-        """
-        for db_type, regexes in self.error_signatures.items():
-            for regex in regexes:
-                match = re.search(regex, content, re.IGNORECASE)
-                if match:
-                    # คืนค่าประเภท DB และข้อความที่เจอ (เอาไป Highlight)
-                    return db_type, match.group(0)
+    # =========================================================================
+    # DETECTORS
+    # =========================================================================
+
+    def _check_error_based(self, url, params, key, prefix, suffix, findings) -> bool:
+        """ยิง Payload เพื่อกระตุ้น Error"""
+        payload = f"{prefix}'{suffix}" # ลองใส่ ' เพื่อให้พัง
+        attack_params = params.copy()
+        attack_params[key] = payload
+        
+        try:
+            res = self.requester.get(url, params=attack_params)
+            db_type, error_msg = self._match_error(res.text)
+            
+            if db_type:
+                self._log_finding("Error-Based", url, key, payload, f"DB: {db_type}")
+                
+                # ถ่ายรูปหลักฐาน
+                screenshot = self._capture_evidence(url, attack_params, mode="error", error_text=error_msg)
+                
+                findings.append(self._create_finding_dict(url, key, payload, "Error-Based", screenshot, error_msg))
+                return True
+        except: pass
+        return False
+
+    def _check_boolean_based(self, url, params, key, prefix, suffix, baseline_len, findings) -> bool:
+        """เปรียบเทียบหน้า True vs False"""
+        for true_logic, false_logic in self.payloads_logic["BOOLEAN"]:
+            # สร้าง Payload: prefix + logic + suffix
+            payload_true = f"{prefix}{true_logic}{suffix}"
+            payload_false = f"{prefix}{false_logic}{suffix}"
+            
+            try:
+                # ยิง 2 ครั้ง
+                p_true = params.copy(); p_true[key] = payload_true
+                res_true = self.requester.get(url, params=p_true)
+                
+                p_false = params.copy(); p_false[key] = payload_false
+                res_false = self.requester.get(url, params=p_false)
+                
+                # Logic การตัดสิน:
+                # 1. หน้า True ต้องคล้ายหน้า Baseline (หรือมี Content เยอะกว่า)
+                # 2. หน้า False ต้องต่างจากหน้า True อย่างชัดเจน
+                len_true = len(res_true.text)
+                len_false = len(res_false.text)
+                
+                # ถ้าความยาวต่างกันเกิน 10% หรือ HTTP Status ต่างกัน
+                if abs(len_true - len_false) > (baseline_len * 0.1) or res_true.status_code != res_false.status_code:
+                    
+                    self._log_finding("Boolean-Based", url, key, payload_true, f"LenDiff: {len_true} vs {len_false}")
+                    
+                    # ถ่ายรูปหลักฐาน (ถ่ายเทียบ 2 รูป)
+                    screenshot = self._capture_evidence(url, p_true, mode="blind", extra_params=p_false)
+                    
+                    findings.append(self._create_finding_dict(url, key, payload_true, "Boolean-Based", screenshot))
+                    return True
+            except: pass
+        return False
+
+    def _check_time_based(self, url, params, key, prefix, suffix, findings) -> bool:
+        """จับเวลา Sleep"""
+        for time_payload in self.payloads_logic["TIME"]:
+            payload = f"{prefix}{time_payload}{suffix}"
+            attack_params = params.copy()
+            attack_params[key] = payload
+            
+            try:
+                start_time = time.time()
+                self.requester.get(url, params=attack_params, timeout=20) # timeout ต้องเผื่อไว้เยอะๆ
+                end_time = time.time()
+                
+                duration = end_time - start_time
+                
+                if duration >= self.time_threshold:
+                    self._log_finding("Time-Based", url, key, payload, f"Duration: {duration:.2f}s")
+                    
+                    # ถ่ายรูปหลักฐาน (ถ่ายหน้าเว็บพร้อม Overlay เวลา)
+                    screenshot = self._capture_evidence(url, attack_params, mode="time", duration=duration)
+                    
+                    findings.append(self._create_finding_dict(url, key, payload, "Time-Based", screenshot))
+                    return True
+            except Exception: 
+                # ถ้า Timeout จริงๆ ก็ถือว่าเจอ (Server หลับยาว)
+                pass
+                
+        return False
+
+    # =========================================================================
+    # HELPERS
+    # =========================================================================
+
+    def _match_error(self, text):
+        for db, regexes in self.error_signatures.items():
+            for r in regexes:
+                match = re.search(r, text, re.IGNORECASE)
+                if match: return db, match.group(0)
         return None, None
 
-    def _verify_and_capture(self, url: str, error_text: str) -> dict:
-        """
-        ใช้ Playwright เปิด URL เพื่อถ่ายรูปและ Highlight Text ที่เป็น Error
-        """
-        result = {"screenshot": None}
-        self.logger.info("       [..] Capturing evidence with Playwright...")
+    def _log_finding(self, type_name, url, param, payload, extra=""):
+        self.logger.info(f"       [!!!] {type_name} SQLi Found!")
+        self.logger.info(f"             Param: {param} | Payload: {payload}")
+        if extra: self.logger.info(f"             Info: {extra}")
 
+    def _create_finding_dict(self, url, param, payload, type_name, screenshot, details=""):
+        return {
+            "url": url,
+            "param": param,
+            "payload": payload,
+            "type": type_name,
+            "confirmed": True,
+            "details": details,
+            "screenshot": screenshot
+        }
+
+    # =========================================================================
+    # EVIDENCE (PLAYWRIGHT)
+    # =========================================================================
+    
+    def _capture_evidence(self, url, params, mode="error", error_text="", duration=0, extra_params=None):
+        """ถ่ายรูปหลักฐานตามประเภทช่องโหว่"""
+        self.logger.info("       [..] Capturing evidence with Playwright...")
+        screenshot_b64 = None
+        
+        # แปลง params เป็น Query String
+        target_url = url + "?" + urllib.parse.urlencode(params)
+        
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(channel="chrome", headless=True)
                 page = browser.new_page(ignore_https_errors=True)
                 
-                page.goto(url, wait_until="load", timeout=10000)
+                page.goto(target_url, wait_until="load", timeout=15000)
                 
-                # --- [TRICK] Highlight Error Text ---
-                # เราจะ Inject JS เพื่อค้นหา Text ที่เป็น Error แล้วตีกรอบแดง
-                try:
-                    # Escape ตัวอักษรพิเศษใน error_text ก่อนส่งเข้า JS
+                # --- Inject Visual Overlay based on Mode ---
+                js_overlay = ""
+                
+                if mode == "error":
+                    # Highlight Error Text (เหมือนเดิม)
                     safe_text = error_text.replace("'", "\\'").replace("\n", " ")
-                    
-                    page.evaluate(f"""
-                        () => {{
-                            const searchText = '{safe_text}';
-                            const xpath = "//*[contains(text(),'" + searchText + "')]";
-                            const matchingElement = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                            
-                            if (matchingElement) {{
-                                // เจอ Element ที่มี Error -> ตีกรอบแดง
-                                matchingElement.style.border = "5px solid red";
-                                matchingElement.style.backgroundColor = "yellow";
-                                matchingElement.style.color = "red";
-                                matchingElement.style.fontWeight = "bold";
-                                matchingElement.scrollIntoView({{block: "center", behavior: "smooth"}});
-                            }} else {{
-                                // ถ้าหาไม่เจอ (อาจจะอยู่ใน source code แต่ไม่ render)
-                                // ให้สร้างกล่องแจ้งเตือนลอยขึ้นมาแทน
-                                const div = document.createElement('div');
-                                div.style.cssText = 'position:fixed;top:10px;left:10px;background:red;color:white;padding:20px;z-index:99999;font-size:20px;border:3px solid yellow;';
-                                div.innerText = "SQL Error Found in Source: " + searchText;
-                                document.body.appendChild(div);
-                            }}
+                    js_overlay = f"""
+                        const searchText = '{safe_text}';
+                        const xpath = "//*[contains(text(),'" + searchText + "')]";
+                        const el = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                        if(el) {{
+                            el.style.border = "5px solid red"; el.style.backgroundColor = "yellow"; el.scrollIntoView({{block: "center"}});
                         }}
-                    """)
-                    
-                    # รอให้ Render ทัน
-                    page.wait_for_timeout(1000)
-                    
-                    # ถ่ายรูป
-                    screenshot_bytes = page.screenshot(type="jpeg", quality=70, full_page=False)
-                    result["screenshot"] = base64.b64encode(screenshot_bytes).decode('utf-8')
-                    
-                except Exception as e:
-                    self.logger.warning(f"       [-] Highlight failed: {e}")
+                        const banner = document.createElement('div');
+                        banner.style.cssText = 'position:fixed;top:0;left:0;width:100%;background:red;color:white;padding:10px;z-index:99999;font-weight:bold;text-align:center;';
+                        banner.innerText = "🚨 SQLi Error Found: " + searchText;
+                        document.body.appendChild(banner);
+                    """
+                
+                elif mode == "time":
+                    # Show Time Duration Banner
+                    js_overlay = f"""
+                        const banner = document.createElement('div');
+                        banner.style.cssText = 'position:fixed;top:0;left:0;width:100%;background:#ff6b6b;color:white;padding:15px;z-index:99999;font-weight:bold;text-align:center;font-size:18px;';
+                        banner.innerText = "⏱️ Time-Based SQLi Confirmed! Response Time: {duration:.2f} seconds";
+                        document.body.appendChild(banner);
+                    """
+                
+                elif mode == "blind":
+                    # Show Boolean Diff Banner
+                    js_overlay = f"""
+                        const banner = document.createElement('div');
+                        banner.style.cssText = 'position:fixed;top:0;left:0;width:100%;background:#ffa502;color:white;padding:15px;z-index:99999;font-weight:bold;text-align:center;font-size:18px;';
+                        banner.innerText = "⚖️ Boolean-Based SQLi Confirmed! Page content changed significantly.";
+                        document.body.appendChild(banner);
+                    """
 
+                if js_overlay:
+                    page.evaluate(js_overlay)
+                    page.wait_for_timeout(1000)
+
+                # Capture
+                screenshot_bytes = page.screenshot(type="jpeg", quality=70, full_page=False)
+                screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+                
                 browser.close()
         except Exception as e:
-            self.logger.error(f"       [-] Verification failed: {e}")
+            self.logger.error(f"       [-] Evidence capture failed: {e}")
             
-        return result
+        return screenshot_b64

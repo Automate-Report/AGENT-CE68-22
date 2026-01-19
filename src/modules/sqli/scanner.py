@@ -37,13 +37,14 @@ class SQLiScanner:
         }
         
         # Error Signatures (เหมือนเดิม)
-        self.error_signatures = {
-            "MySQL": [r"SQL syntax.*MySQL", r"Warning.*mysql_"],
-            "PostgreSQL": [r"PostgreSQL.*ERROR", r"Warning.*\Wpg_"],
-            "MSSQL": [r"Driver.* SQL[\-\_\ ]*Server", r"OLE DB.* SQL Server"],
-            "Oracle": [r"\bORA-[0-9][0-9][0-9][0-9]"],
-            "Generic": [r"You have an error in your SQL syntax", r"Unclosed quotation mark"]
-        }
+        self.error_regexes = [
+            r"SQL syntax.*MySQL", r"Warning.*mysql_", 
+            r"PostgreSQL.*ERROR", r"Warning.*\Wpg_", 
+            r"Driver.* SQL[\-\_\ ]*Server", r"OLE DB.* SQL Server",
+            r"\bORA-[0-9][0-9][0-9][0-9]",
+            r"You have an error in your SQL syntax", 
+            r"Unclosed quotation mark"
+        ]
 
     def scan(self, url: str, params: dict) -> list:
         findings = []

@@ -10,7 +10,7 @@ os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
 # from src.config.settings import settings
 # from src.core.auth import AuthManager
 # from src.core.api_client import APIClient
-from src.test import test_xss
+from src.test import test_xss, test_sqli
 
 def main():
 
@@ -40,7 +40,8 @@ def main():
     # print(f"✅ [Cycle {n}] {result}")
 
     # time.sleep(settings.poll_interval)
-    result = test_xss()
+    # result = test_xss()
+    result = test_sqli()
 
     
 

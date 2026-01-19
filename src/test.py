@@ -4,6 +4,7 @@ from src.core.logger import setup_logger
 
 from src.modules.xss.scanner import XSSScanner
 from src.modules.xss.dom_scanner import DOMScanner
+from src.modules.sqli.scanner import SQLiScanner
 
 def test_xss():
     logger = setup_logger("Worker")
@@ -60,5 +61,8 @@ def test_xss():
     print(url_attacked)
     return True
 
-    
+def test_sqli():
+    sqli_scanner = SQLiScanner()
+    results = sqli_scanner.scan("http://testphp.vulnweb.com/listproducts.php", {"cat": "1"})
+    return results
 

@@ -37,6 +37,7 @@ def test_xss():
             for f in findings_reflected:
                 logger.info(f"   -> Payload: {f['payload']}")
                 logger.info(f"   -> Context: {f['context']}")
+                logger.info(f"   -> Context: {f['screenshot']}")
                 if f.get('confirmed'):
                     logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
         else:
@@ -50,6 +51,7 @@ def test_xss():
             for f in findings_dom:
                 logger.info(f"   -> Payload: {f['payload']}")
                 logger.info(f"   -> Context: {f['context']}")
+                logger.info(f"   -> Context: {f['screenshot']}")
                 if f.get('confirmed'):
                     logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
         else:

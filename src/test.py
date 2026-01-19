@@ -13,7 +13,7 @@ def test_xss():
     dom_scanner = DOMScanner()
 
     logger.info("[*] Crawler is running...")
-    target_url = "https://pentest-ground.com:4280/"
+    target_url = "https://xss-game.appspot.com/level2/frame"
     # https://public-firing-range.appspot.com/address/index.html
     # http://testphp.vulnweb.com/search.php
     # https://xss-game.appspot.com/level2/frame
@@ -37,7 +37,7 @@ def test_xss():
             for f in findings_reflected:
                 logger.info(f"   -> Payload: {f['payload']}")
                 logger.info(f"   -> Context: {f['context']}")
-                logger.info(f"   -> Context: {f['screenshot']}")
+                logger.info(f"   -> Screenshot: {f['screenshot']}")
                 if f.get('confirmed'):
                     logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
         else:
@@ -51,7 +51,7 @@ def test_xss():
             for f in findings_dom:
                 logger.info(f"   -> Payload: {f['payload']}")
                 logger.info(f"   -> Context: {f['context']}")
-                logger.info(f"   -> Context: {f['screenshot']}")
+                logger.info(f"   -> Screenshot: {f['screenshot']}")
                 if f.get('confirmed'):
                     logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
         else:

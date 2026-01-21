@@ -4,7 +4,7 @@
 #     -slow spa website
 import time
 from playwright.sync_api import sync_playwright, Page
-from src.core.deduplicator import Deduplicator
+from src.scanner.deduplicator import Deduplicator
 from src.core.logger import setup_logger
 
 from urllib.parse import urlparse, urljoin

@@ -1,6 +1,6 @@
-from src.core.crawler import Crawler
-from src.modules.xss.scanner import XSSScanner
-from src.modules.xss.dom_scanner import DOMScanner
+from src.scanner.crawler import Crawler
+from src.exploits.xss.scanner import XSSScanner
+from src.exploits.xss.dom_scanner import DOMScanner
 from src.core.logger import setup_logger
 from src.core.requester import Requester
 

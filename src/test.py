@@ -1,12 +1,12 @@
 # security-worker/main.py
 import requests
 
-from src.core.crawler import Crawler
+from src.scanner.crawler import Crawler
 from src.core.logger import setup_logger
 
-from src.modules.xss.scanner import XSSScanner
-from src.modules.xss.dom_scanner import DOMScanner
-from src.modules.sqli.scanner import SQLiScanner
+from src.exploits.xss.scanner import XSSScanner
+from src.exploits.xss.dom_scanner import DOMScanner
+from src.exploits.sqli.scanner import SQLiScanner
 
 def test_xss():
     logger = setup_logger("Worker")

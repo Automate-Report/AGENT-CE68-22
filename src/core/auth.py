@@ -1,7 +1,7 @@
 import requests
 import traceback
 import json
-from src.config.settings import settings
+from src.core.settings import settings
 
 
 class AuthManager:

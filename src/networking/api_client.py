@@ -3,7 +3,7 @@ import sys
 import time
 import threading
 from src.core.auth import AuthManager
-from src.config.settings import settings
+from src.core.settings import settings
 
 class APIClient:
     def __init__(self, auth_manager: AuthManager):

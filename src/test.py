@@ -29,7 +29,7 @@ def test_xss():
     
     for t in crawled_targets:
         url = t['url']
-        params = t.get('params', {})
+        params = t.get('params', {}) # จะให้ใส่มาได้ไหม
 
         logger.info(f"--- Analyzing: {url} ---")
         

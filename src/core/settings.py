@@ -4,7 +4,6 @@ import os
 import getpass
 import requests
 import platform
-import time
 
 from cryptography.fernet import Fernet
 from src.core.config_manager import EncryptedConfig

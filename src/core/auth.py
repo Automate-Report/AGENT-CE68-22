@@ -1,6 +1,4 @@
 import requests
-import traceback
-import json
 from src.core.settings import settings
 
 

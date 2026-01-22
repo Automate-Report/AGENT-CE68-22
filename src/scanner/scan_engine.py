@@ -2,7 +2,7 @@ from src.scanner.crawler import Crawler
 from src.exploits.xss.scanner import XSSScanner
 from src.exploits.xss.dom_scanner import DOMScanner
 from src.core.logger import setup_logger
-from src.core.requester import Requester
+from src.networking.requester import Requester
 
 class ScanEngine:
     def __init__(self):

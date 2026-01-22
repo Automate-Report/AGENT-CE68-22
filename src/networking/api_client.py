@@ -2,7 +2,8 @@ import requests
 import sys
 import time
 import threading
-from src.core import AuthManager, settings
+from src.core.auth import AuthManager
+from src.core.settings import settings
 
 class APIClient:
     def __init__(self, auth_manager: AuthManager):

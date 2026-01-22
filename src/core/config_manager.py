@@ -21,7 +21,7 @@ class EncryptedConfig:
         machine_id = str(uuid.getnode()).encode()
         
         # 2. แปลงให้เป็น Format ที่ Fernet รับได้ (32 bytes base64)
-        salt = b'my_static_salt_bla_bla' # เปลี่ยนค่านี้ให้เป็นความลับของคุณเอง
+        salt = b'JimGiFbXqlAwUAXu2PM1' # เปลี่ยนค่านี้ให้เป็นความลับของคุณเอง
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,

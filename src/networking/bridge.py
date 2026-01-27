@@ -5,25 +5,31 @@ import threading
 from src.core.auth import AuthManager
 from src.core.settings import settings
 
-class APIClient:
+class BackendBridge:
     def __init__(self, auth_manager: AuthManager):
         self.auth = auth_manager
+        self.active_thread = 0
 
     def send_heartbeat(self):
+        """ ส่ง Heartbeat พร้อม load data"""
         if not self.auth.token:
             return False
+        
         try:
             headers =self.auth.get_headers()
 
             url = f"{settings.backend_url}{settings.HEART_BEAT_ENDPOINT}"
 
-            print(url)
+            payload = {
+                "current_load": self.active_thread,
+                "status": "online"
+            }
 
-            response = requests.post(url, headers=headers, timeout=5)
+            response = requests.post(url, json=payload, headers=headers, timeout=10)
 
 
             if response.status_code == 200:
-                print(f"💓 Heartbeat OK")
+                print(f"💓 Heartbeat OK Load: {self.active_thread}/{settings.maxThread}")
                 return True
             
             elif response.status_code == 401:
@@ -32,7 +38,7 @@ class APIClient:
                     return self.send_heartbeat() # ส่งใหม่
             
             elif response.status_code == 403:
-                print("❌ Heartbeat 403: Access Revoked!")
+                print("Heartbeat 403: Access Revoked!")
                 self.hard_reset("Server rejected heartbeat (Key Revoked).")
 
         except Exception as e:
@@ -54,6 +60,7 @@ class APIClient:
         # สร้าง Thread และสั่งรัน (Daemon=True คือถ้าปิดโปรแกรมหลัก Thread นี้จะดับด้วย)
         hb_thread = threading.Thread(target=loop, daemon=True)
         hb_thread.start()
+        print("📡 Background Heartbeat started.")
 
 
     def post(self, endpoint, data):

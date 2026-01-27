@@ -9,7 +9,7 @@ os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
 import time
 from src.core.settings import settings
 from src.core.auth import AuthManager
-from src.networking.api_client import APIClient
+from src.networking.bridge import BackendBridge
 from src.test import test_xss, test_sqli
 
 def main():
@@ -18,7 +18,7 @@ def main():
     n = 0
     auth = AuthManager()
     print(auth.verify_worker())
-    client = APIClient(auth)
+    client = BackendBridge(auth)
 
     # print(f"🚀 Worker Started...")
     

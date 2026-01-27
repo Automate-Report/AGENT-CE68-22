@@ -30,7 +30,7 @@ class AuthManager:
                 return False
 
         except Exception as e:
-            print(f"⚠️ [Auth] Critical Error during verification: {e}")
+            print(f"[Auth] Critical Error during verification: {e}")
             return False
 
     def get_headers(self):

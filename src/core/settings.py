@@ -36,7 +36,7 @@ class Settings:
         self.worker_id = 1
         self.worker_name = "XSS Worker"
         self.backend_url = "http://localhost:8000"
-        self.access_key = "xdLTWaaI-5FltG-gv61V4v8bt_x1kt5fUgixo7NpfZY"
+        self.access_key = "vZTxJ2OKyhR1c1VHTAZySvVzw-JK0k1iY5m4AaFWYPs"
         self.poll_interval = 5
         self.hostname = "test"
         self.maxThread = 2

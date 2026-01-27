@@ -26,15 +26,15 @@ def main():
 
     
 
-    # # while True:
-    n+=1
-    # payload = {
-    #     "cnt": n,
-    #     "status": "working"
-    # }
+    while True:
+        n+=1
+        payload = {
+            "cnt": n,
+            "status": "working"
+        }
 
-    # result = client.post(settings.SUBMIT_TASK_ENDPOINT, payload)
-    # print(result)
+        result = client.post(settings.SUBMIT_TASK_ENDPOINT, payload)
+        print(result)
 
 
     print(f"✅ [Cycle {n}] ")

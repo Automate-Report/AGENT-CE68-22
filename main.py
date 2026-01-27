@@ -6,28 +6,28 @@ import sys
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
 
 
-# import time
-# from src.config.settings import settings
-# from src.core.auth import AuthManager
-# from src.core.api_client import APIClient
+import time
+from src.core.settings import settings
+from src.core.auth import AuthManager
+from src.networking.api_client import APIClient
 from src.test import test_xss, test_sqli
 
 def main():
 
 
-    # n = 0
-    # auth = AuthManager()
-    # print(auth.verify_worker())
-    # client = APIClient(auth)
+    n = 0
+    auth = AuthManager()
+    print(auth.verify_worker())
+    client = APIClient(auth)
 
     # print(f"🚀 Worker Started...")
     
-    # client.start_heartbeat_loop()
+    client.start_heartbeat_loop()
 
     
 
     # # while True:
-    # n+=1
+    n+=1
     # payload = {
     #     "cnt": n,
     #     "status": "working"
@@ -37,10 +37,10 @@ def main():
     # print(result)
 
 
-    # print(f"✅ [Cycle {n}] {result}")
+    print(f"✅ [Cycle {n}] ")
 
     # time.sleep(settings.poll_interval)
-    result = test_xss()
+    # result = test_xss()
     # result = test_sqli()
 
     

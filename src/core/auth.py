@@ -33,7 +33,7 @@ class AuthManager:
                 data = response.json()
                 self.token = data.get("token")
                 return True
-            
+            print(response.json())
             # [DEBUG 3] ถ้าไม่ 200 ให้ print เตือน
             # print(f"Failed to verify. Server returned: {response.status_code}")
             return False

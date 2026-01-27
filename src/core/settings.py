@@ -33,12 +33,13 @@ class Settings:
 
 
     def __init__(self):
-        self.worker_id = 19
-        self.worker_name = "werty"
-        self.backend_url = "http://127.0.0.1:8000"
-        self.access_key = "Hnwkr2JDCTupKMC_W66h4_9NNII4_XlrnN_5NFGH_q4"
+        self.worker_id = 1
+        self.worker_name = "XSS Worker"
+        self.backend_url = "http://localhost:8000"
+        self.access_key = "xdLTWaaI-5FltG-gv61V4v8bt_x1kt5fUgixo7NpfZY"
         self.poll_interval = 5
         self.hostname = "test"
+        self.maxThread = 2
 
         self.secure_store = EncryptedConfig("secret.dat")
 

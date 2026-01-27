@@ -41,6 +41,10 @@ class Settings:
         self.hostname = "test"
         self.maxThread = 2
 
+        self.redis_host = "10.20.20.108"
+        self.redis_port = 5678
+        self.redis_db = 1
+
         self.secure_store = EncryptedConfig("secret.dat")
 
         self.logger = setup_logger("Worker")

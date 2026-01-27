@@ -16,32 +16,21 @@ class AuthManager:
                 "hostname": settings.hostname
             }
 
-            # [DEBUG 1] ดูสิ่งที่กำลังจะส่งไป
-            # print(f"--- DEBUG REQUEST ---")
-            # print(f"URL: {url}")
-            # print(f"Payload: {json.dumps(payload, indent=2)}") 
+            response = requests.post(url, json=payload, timeout=10) 
 
-            response = requests.post(url, json=payload, timeout=5) # ใส่ timeout กันค้าง
-            
-            # [DEBUG 2] ดูสิ่งที่เซิฟเวอร์ตอบกลับมา
-            # print(f"--- DEBUG RESPONSE ---")
-            # print(f"Status Code: {response.status_code}")
-            # print(f"Response Body: {response.text}") # ใช้ .text เพื่อดู raw data ก่อนแปลง json
 
             if response.status_code == 200:
-                print("Verified Success")
+                print("[Auth] Verified Success")
                 data = response.json()
                 self.token = data.get("token")
                 return True
-            print(response.json())
-            # [DEBUG 3] ถ้าไม่ 200 ให้ print เตือน
-            # print(f"Failed to verify. Server returned: {response.status_code}")
-            return False
+            else:
+                print(f"[Auth] Verification Failed: {response.status_code}")
+                print(response.text)
+                return False
 
         except Exception as e:
-            # [DEBUG 4] ปริ้น Error จริงๆ ออกมาดู
-            # print(f"!!! CRASH !!!: {e}")
-            # print(traceback.format_exc()) # ปริ้น Stack trace เต็มๆ
+            print(f"⚠️ [Auth] Critical Error during verification: {e}")
             return False
 
     def get_headers(self):
@@ -49,4 +38,5 @@ class AuthManager:
         return {"Authorization": f"Bearer {self.token}"}               
 
     def reset(self):
+        """ล้าง Token ออก ถ้า Key ถูก Revoked"""
         self.token = None                                             

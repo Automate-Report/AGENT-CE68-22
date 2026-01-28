@@ -10,7 +10,7 @@ def send_test_jobs():
     print(f"📡 Sending test jobs to {queue_name}...")
     
     test_jobs = [
-        {"id": 102, "target_url": "http://testphp.vulnweb.com/search.php", "attack_type": "sql_injection", "credentials": None},
+        {"id": 1, "target_url": "http://testphp.vulnweb.com/search.php", "attack_type": "sql_injection", "credentials": None},
         # {"id": 102, "target_url": "http://xss-game.appspot.com", "attack_type": "xss", "credentials": {"user": "admin"}},
         # {"id": 103, "target_url": "http://demo.testfire.net", "attack_type": "sql_injection", "credentials": None},
         # {"id": 104, "target_url": "http://example.com", "attack_type": "xss", "credentials": None},

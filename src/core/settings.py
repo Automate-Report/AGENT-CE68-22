@@ -18,8 +18,9 @@ class Settings:
     #[Worker] ?? อาจจะ extract ออกมาเหมือน backend 
     GET_WORKER_ENDPOINT="/workers/"
     VERIFY_ENDPOINT="/workers/verify"
-    SUBMIT_TASK_ENDPOINT="/workers/submit-task"
+    SUBMIT_TASK_ENDPOINT="/project-tags/"
     HEART_BEAT_ENDPOINT="/workers/heartbeat"
+
 
     #[Worker] ชื่อ config
     CONFIG_FILE_NAME = "config.json" # ไฟล์เก็บค่าทั่วไปให้ user แก้ไขได้ 

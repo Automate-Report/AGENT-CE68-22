@@ -63,28 +63,43 @@ class BackendBridge:
         print("📡 Background Heartbeat started.")
 
 
-    def post(self, endpoint, data):
-        """POST Request"""
+    def post_result(self, data):
+        """
+        ส่งผลลัพธ์ของการ pen test ไปหา Backend
+        """
         # Check ว่ามี Token รึยัง
         if not self.auth.token:
             if not self.auth.verify_worker():
                 return None
 
-        # POST Request
-        url = f"{settings.backend_url}{endpoint}"
-        response = requests.post(url, json=data, headers=self.auth.get_headers())
+        url = f"{settings.backend_url}{settings.SUBMIT_TASK_ENDPOINT}"
 
-        # Error handler
-        if response.status_code == 401 or response.status_code == 403 or response.status_code == 500:
-            print("Token Expired! Renewing...")
-            if self.auth.verify_worker():
-                print("✅ Re-handshake success. Resuming work.")
-                response = requests.post(url, json=data, headers=self.auth.get_headers())
-            else:
-                print("🛑 Agent is stopping now...")
-                self.emergency_shutdown("❌ CRITICAL: Access Key is invalid/revoked by Server.")
+        for attempt in range(2):
+            try:
+                response = requests.post(url, json=data, headers=self.auth.get_headers(), timeout=30)
 
-        return response
+                if response.status_code == 201 or response.status_code == 200:
+                    return response
+                
+                if response.status_code in [401, 403]:
+                    print(f"[Attempt {attempt+1}] Token Invalid. Renewing...")
+                    if not self.auth.verify_worker():
+                        self.emergency_shutdown("Access Revoked.")
+                        break
+                    continue
+                if response.status_code >= 500:
+                    print(f"Server Error ({response.status_code}). Waiting 5s...")
+                    time.sleep(5)
+                    continue
+
+                print(f"❌ Failed with status {response.status_code}: {response.text}")
+                break
+
+            except requests.exceptions.RequestException as e:
+                print(f"📡 Network Error: {e}")
+                time.sleep(5)
+
+        return None
     
     def emergency_shutdown(self, reason):
         """กรณีเกิดข้อผิดพลาดร้ายแรง ให้หยุดการทำงานทันที"""

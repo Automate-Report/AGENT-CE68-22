@@ -43,7 +43,7 @@ class WorkerEngine:
             # time.sleep(5) 
             
             # ส่ง Report กลับไปที่ Backend
-            # self.bridge.post_report("/jobs/update", {"id": job_id, "status": "success"})
+            self.bridge.post_result(scan_result)
 
         except Exception as e:
             print(f"❌ [Job {job_id}] Error: {e}")

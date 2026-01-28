@@ -9,3 +9,4 @@ colorama        # สำหรับแสดงผลสีใน Terminal (ส
 fake-useragent  # สำหรับสุ่ม User-Agent เนียนๆ
 
 pyinstaller
+redis

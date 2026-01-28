@@ -8,7 +8,7 @@ from src.core.settings import settings
 class BackendBridge:
     def __init__(self, auth_manager: AuthManager):
         self.auth = auth_manager
-        self.active_thread = 0
+        self.active_threads = 0
 
     def send_heartbeat(self):
         """ ส่ง Heartbeat พร้อม load data"""
@@ -21,7 +21,7 @@ class BackendBridge:
             url = f"{settings.backend_url}{settings.HEART_BEAT_ENDPOINT}"
 
             payload = {
-                "current_load": self.active_thread,
+                "current_load": self.active_threads,
                 "status": "online"
             }
 
@@ -29,7 +29,7 @@ class BackendBridge:
 
 
             if response.status_code == 200:
-                print(f"💓 Heartbeat OK Load: {self.active_thread}/{settings.maxThread}")
+                print(f"💓 Heartbeat OK Load: {self.active_threads}/{settings.maxThread}")
                 return True
             
             elif response.status_code == 401:
@@ -39,7 +39,7 @@ class BackendBridge:
             
             elif response.status_code == 403:
                 print("Heartbeat 403: Access Revoked!")
-                self.hard_reset("Server rejected heartbeat (Key Revoked).")
+                self.emergency_shutdown("Server rejected heartbeat (Key Revoked).")
 
         except Exception as e:
             print(f"⚠️ Heartbeat Failed (Network Error): {e}")
@@ -81,11 +81,16 @@ class BackendBridge:
                 print("✅ Re-handshake success. Resuming work.")
                 response = requests.post(url, json=data, headers=self.auth.get_headers())
             else:
-                print("❌ CRITICAL: Access Key is invalid/revoked by Server.")
                 print("🛑 Agent is stopping now...")
-                settings.reset()
-                self.auth.reset()
-                time.sleep(10)
-                sys.exit(1)
+                self.emergency_shutdown("❌ CRITICAL: Access Key is invalid/revoked by Server.")
 
         return response
+    
+    def emergency_shutdown(self, reason):
+        """กรณีเกิดข้อผิดพลาดร้ายแรง ให้หยุดการทำงานทันที"""
+        print(f"🛑 EMERGENCY SHUTDOWN: {reason}")
+        self.auth.reset()
+        settings.reset()
+        # หน่วงเวลาเล็กน้อยเพื่อให้ระบบบันทึก Log ก่อนจบโปรแกรม
+        time.sleep(5)
+        sys.exit(1)

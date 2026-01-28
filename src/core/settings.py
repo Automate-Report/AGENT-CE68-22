@@ -18,7 +18,7 @@ class Settings:
     #[Worker] ?? อาจจะ extract ออกมาเหมือน backend 
     GET_WORKER_ENDPOINT="/workers/"
     VERIFY_ENDPOINT="/workers/verify"
-    SUBMIT_TASK_ENDPOINT="/project-tags/"
+    SUBMIT_TASK_ENDPOINT="/pentest-logs/"
     HEART_BEAT_ENDPOINT="/workers/heartbeat"
 
 

@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from src.core.auth import AuthManager
 from src.core.settings import settings
 from src.networking.bridge import BackendBridge
+from src.scanner.scan_engine import ScanOrchestrator
 
 class WorkerEngine:
     def __init__(self):
@@ -35,12 +36,11 @@ class WorkerEngine:
             self.bridge.active_threads += 1
             print(f"🛠️ [Job {job_id}] Processing...")
 
-            # เรียกตัว Scanner ที่คุณทำไว้ใน /src/scanner
-            # ตัวอย่าง: scanner = ScannerManager(job_data)
-            # result = scanner.start_scan()
+            orchestrator = ScanOrchestrator(job_data)
+            scan_result = orchestrator.run_workflow()
             
             # จำลองการทำงาน
-            time.sleep(5) 
+            # time.sleep(5) 
             
             # ส่ง Report กลับไปที่ Backend
             # self.bridge.post_report("/jobs/update", {"id": job_id, "status": "success"})

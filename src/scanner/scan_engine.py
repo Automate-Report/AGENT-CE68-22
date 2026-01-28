@@ -1,11 +1,17 @@
 from src.scanner.crawler import Crawler
 from src.exploits.xss.scanner import XSSScanner
 from src.exploits.xss.dom_scanner import DOMScanner
+from src.exploits.sqli.scanner import SQLiScanner
 from src.core.logger import setup_logger
 from src.networking.requester import Requester
 
 class ScanEngine:
-    def __init__(self):
+    def __init__(self, job_data: dict):
+        self.job_id = job_data.get("id")
+        self.target = job_data.get("target_url")
+        self.attack_type = job_data.get("attack_type")
+        self.cred = job_data.get("credentials")
+
         self.logger = setup_logger("ScanEngine")
         # Init Tools
         self.requester = Requester()

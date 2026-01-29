@@ -132,8 +132,8 @@ class Settings:
             return
 
         # 2. ถ้าไม่มี ให้ถาม User (Console Input)
-        print("\n🔑 Security Check Required")
-        print("--------------------------")
+        self.logger.info("🔑 Security Check Required")
+        self.logger.info("--------------------------")
 
 
         while not key:

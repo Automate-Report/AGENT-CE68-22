@@ -34,7 +34,7 @@ class Settings:
 
 
     def __init__(self):
-        self.worker_id = 1
+        self.worker_id = 2
         self.worker_name = "XSS Worker"
         self.backend_url = "http://localhost:8000"
         self.access_key = "vZTxJ2OKyhR1c1VHTAZySvVzw-JK0k1iY5m4AaFWYPs"

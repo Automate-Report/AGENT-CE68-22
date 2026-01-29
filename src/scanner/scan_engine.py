@@ -7,10 +7,11 @@ from src.networking.requester import Requester
 
 class ScanOrchestrator:
     def __init__(self, job_data: dict):
-        self.job_id = job_data.get("id")
+        print(f"DEBUG: ScanOrchestrator received: {job_data}")
+        self.job_id = job_data.get("job_id")
         self.target = job_data.get("target_url")
         self.attack_type = job_data.get("attack_type")
-        self.cred = job_data.get("credentials")
+        # self.cred = job_data.get("credentials")
 
         self.logger = setup_logger("ScanEngine")
         # Init Tools
@@ -33,10 +34,10 @@ class ScanOrchestrator:
         elif self.attack_type == "xss":
             results = self._run_xss_scan(crawled_targets)
         else:
-            self.logger.warning("Unknown attack type: {self.attack_type}")
+            self.logger.warning(f"Unknown attack type: {self.attack_type}")
 
         return {
-            "job_id": self.job_id,
+            "job_id": int(self.job_id),
             "status": "completed",
             "findings": results,
             "target_count": len(crawled_targets)

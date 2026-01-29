@@ -22,19 +22,21 @@ class WorkerEngine:
         )
         self.redis_client = redis.Redis(connection_pool=self.pool)
 
-        self.queue_name = f"system:queue:worker:{settings.worker_id}"
+        self.queue_name = f"system:queue:work:{settings.worker_id}"
         
         self.executor = ThreadPoolExecutor(max_workers=settings.maxThread)
+
+        self.job_data = None
 
     def run_task(self, job_data: dict):
         """
         Wrapper สำหรับการรันงานใน Thread
         """
-        job_id = job_data.get("id")
+        job_id = job_data.get("job_id")
         try:
             # เพิ่มจำนวน Thread ที่กำลังทำงาน (เพื่อให้ Heartbeat ส่งค่าที่ถูกต้อง)
             self.bridge.active_threads += 1
-            print(f"🛠️ [Job {job_id}] Processing...")
+            print(f"🛠️ [Job {job_id}] -{job_data.get("target_url")}- Processing...")
 
             orchestrator = ScanOrchestrator(job_data)
             scan_result = orchestrator.run_workflow()
@@ -73,14 +75,25 @@ class WorkerEngine:
                 task_tuple = self.redis_client.blpop(self.queue_name, timeout=0)
                 
                 if task_tuple:
-                    _, raw_data = task_tuple
-                    job_data = dict(json.loads(raw_data))
-                    
-                    print(f"📦 New Job Received: {job_data.get('id')}")
+                    raw_data = task_tuple[1]
+                    try:
+                        print(raw_data)
 
-                    # ส่งงานเข้าไปใน Thread Pool
-                    # หาก Thread เต็ม งานจะเข้าคิวรออัตโนมัติ
-                    self.executor.submit(self.run_task, job_data)
+                        job_data = json.loads(raw_data)
+                        print(f"DEBUG: job_data content is {job_data}")
+                        job_id = job_data.get("job_id")
+
+                        if job_id is None:
+                            print("❌ Error: job_id is missing in payload")
+                            return
+                        
+                        # ส่งงานเข้าไปใน Thread Pool
+                        # หาก Thread เต็ม งานจะเข้าคิวรออัตโนมัติ
+                        self.executor.submit(self.run_task, job_data)
+                        print(f"📦 New Job Received: {job_id}")
+
+                    except json.JSONDecodeError:
+                        print("❌ Error: Could not decode JSON")
 
         except KeyboardInterrupt:
             print("\n🛑 Worker is shutting down...")

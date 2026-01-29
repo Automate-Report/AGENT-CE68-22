@@ -15,14 +15,6 @@ class Settings:
     EMBEDDED_KEY = b'JimGiFbXqlAwUAXu2PM1_eATccCMR7uAoB0wfI2DMgQ='
     DELIMITER = b"|||HIDDEN_DATA|||"
 
-    #[Worker] ?? อาจจะ extract ออกมาเหมือน backend 
-    GET_WORKER_ENDPOINT="/workers/"
-    VERIFY_ENDPOINT="/workers/verify"
-    SUBMIT_TASK_ENDPOINT="/pentest-logs/"
-    HEART_BEAT_ENDPOINT="/workers/heartbeat"
-    UPDATE_STATUS_JOB = "/jobs/update_status/"
-
-
     #[Worker] ชื่อ config
     CONFIG_FILE_NAME = "config.json" # ไฟล์เก็บค่าทั่วไปให้ user แก้ไขได้ 
 
@@ -35,9 +27,9 @@ class Settings:
 
 
     def __init__(self):
-        self.worker_id = 2
+        
         self.worker_name = "XSS Worker"
-        self.backend_url = "http://localhost:8000"
+        
         self.access_key = "vZTxJ2OKyhR1c1VHTAZySvVzw-JK0k1iY5m4AaFWYPs"
         self.poll_interval = 5
         self.hostname = "test"
@@ -52,6 +44,15 @@ class Settings:
 
         self.logger = setup_logger("Worker")
 
+        # extract จาก exe
+        self.worker_id = 2
+        self.backend_url = "http://localhost:8000"
+        self.get_worker_endpoint = "/workers/"
+        self.verify_endpoint = "/workers/verify"
+        self.send_pentest_log = "/pentest-logs/" 
+        self.heartbeat = "/workers/heartbeat/"
+        self.update_job_status = "/jobs/update_status/"
+
     def setup(self):
         # load from config.json
         self._load_from_json_file()
@@ -62,7 +63,7 @@ class Settings:
         # get access_key
 
         # get worker_name
-        url = f"{self.backend_url}{self.GET_WORKER_ENDPOINT}{int(self.worker_id)}"
+        url = f"{self.backend_url}{self.get_worker_endpoint}{int(self.worker_id)}"
         print(url)
         response = requests.get(url)
         data = response.json()

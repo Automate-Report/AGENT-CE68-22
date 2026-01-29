@@ -7,7 +7,7 @@ class AuthManager:
         self.token = None
 
     def verify_worker(self):
-        """แลก Access Key เป็น JWT Token (Debug Mode)"""
+        """แลก Access Key เป็น JWT Token"""
         try: 
             url = f"{settings.backend_url}{settings.VERIFY_ENDPOINT}"
             payload = {

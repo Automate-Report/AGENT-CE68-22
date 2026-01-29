@@ -60,17 +60,17 @@ class Settings:
         self.logger.info(f"Setup Worker.")
         # exteact เอา worker_id กับ backend_url
         self._load_from_exe_overlay()
-        # get access_key
 
         # get worker_name
         url = f"{self.backend_url}{self.get_worker_endpoint}{int(self.worker_id)}"
-        print(url)
         response = requests.get(url)
         data = response.json()
         worker_name = data.get("name")
         self.worker_name = worker_name
 
-        print(f"✅ Loaded: Worker {self.worker_name} | Poll: {self.poll_interval}s")
+        # get access_key
+        self._load_or_ask_access_key()
+        self.logger.info(f"✅ Loaded: Worker {self.worker_name} | Poll: {self.poll_interval}s")
 
     def reset(self):
         self.access_key = None

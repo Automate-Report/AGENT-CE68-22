@@ -7,10 +7,13 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
+from src.core.logger import setup_logger
+
 class EncryptedConfig:
     def __init__(self, filename="worker_config.dat"):
         self.filename = filename
         self.key = self._generate_machine_key()
+        self.logger = setup_logger("EncryptedConfig")
 
     def _generate_machine_key(self):
         """
@@ -38,7 +41,8 @@ class EncryptedConfig:
         
         with open(self.filename, "wb") as f:
             f.write(encrypted_data)
-        print(f"✅ บันทึก Config แบบเข้ารหัสเรียบร้อยที่ {self.filename}")
+        
+        self.logger.info(f"[Config] บันทึก Config แบบเข้ารหัสเรียบร้อยที่ {self.filename}")
 
     def load_access_key(self):
         """อ่านไฟล์และถอดรหัส"""
@@ -54,29 +58,8 @@ class EncryptedConfig:
             config = json.loads(decrypted_data)
             return config.get("access_key")
         except Exception as e:
-            print("❌ อ่าน Config ไม่ได้ (ไฟล์อาจถูกย้ายมาจากเครื่องอื่น หรือเสียหาย)")
+            self.logger.error("[Config] อ่าน Config ไม่ได้ (ไฟล์อาจถูกย้ายมาจากเครื่องอื่น หรือเสียหาย)")
             return None
     
     def remove_file(self):
         os.remove(self.filename)
-
-# --- ฟังก์ชันหลักสำหรับเรียกใช้จากข้างนอก ---
-# def get_or_ask_key():
-#     config_manager = EncryptedConfig()
-    
-#     # 1. ลองโหลดดูก่อน
-#     key = config_manager.load_access_key()
-    
-#     if key:
-#         print("🔓 โหลด Access Key จากไฟล์สำเร็จ")
-#         return key
-    
-#     # 2. ถ้าไม่มี ให้ถาม User
-#     print("⚠️ ไม่พบ Config File หรืออ่านไม่ได้")
-#     user_input = getpass.getpass("กรุณากรอก Worker Access Key: ")
-    
-#     if user_input.strip():
-#         config_manager.save_access_key(user_input.strip())
-#         return user_input.strip()
-#     else:
-#         return None

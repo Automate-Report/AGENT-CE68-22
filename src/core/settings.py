@@ -70,7 +70,7 @@ class Settings:
 
         # get access_key
         self._load_or_ask_access_key()
-        self.logger.info(f"✅ Loaded: Worker {self.worker_name} | Poll: {self.poll_interval}s")
+        self.logger.info(f"[Settings] Loaded: Worker {self.worker_name} | Poll: {self.poll_interval}s")
 
     def reset(self):
         self.access_key = None
@@ -80,7 +80,7 @@ class Settings:
         """แกะ ID และ URL จากท้ายไฟล์ EXE"""
         try:
             exe_path = os.path.abspath(sys.argv[0])
-            self.logger.debug(f"📂 Reading EXE from: {exe_path}")
+            self.logger.debug(f"[Settings] Reading EXE from: {exe_path}")
 
             with open(exe_path, "rb") as f:
                 content = f.read()
@@ -95,15 +95,15 @@ class Settings:
                 self.worker_id = data.get("WORKER_ID")
                 self.backend_url = data.get("BACKEND_URL")
 
-                print(f"✅ Overlay Found: Worker {self.worker_id}")
+                self.logger.debug(f"[Settings] Overlay Found: Worker {self.worker_id}")
             else:
-                self.logger.warning(f"⚠️ Warning: ไม่พบ ID ที่ฝังมา (อาจจะรันแบบ Python Script ปกติ หรือไม่ได้ผ่าน Backend)")
+                self.logger.debug(f"[Settings] ⚠️ Warning: ไม่พบ ID ที่ฝังมา (อาจจะรันแบบ Python Script ปกติ หรือไม่ได้ผ่าน Backend)")
         except Exception as e:
-            self.logger.error(f"❌ Error reading EXE overlay: {e}")
+            self.logger.error(f"[Settings] ❌ Error reading EXE overlay: {e}")
 
     def _load_from_json_file(self):
         """อ่านค่า Config ที่ User แก้ไขได้"""
-        self.logger.info("[+]Load data from config.json.")
+        self.logger.info("[settings] Load data from config.json.")
         if not os.path.exists(self.CONFIG_FILE_NAME):
             default_conf = {"POLL_INTERVAL": 5}
             with open(self.CONFIG_FILE_NAME, "w") as f:
@@ -132,7 +132,7 @@ class Settings:
             return
 
         # 2. ถ้าไม่มี ให้ถาม User (Console Input)
-        self.logger.info("🔑 Security Check Required")
+        self.logger.info("[Settings] Security Check Required")
         self.logger.info("--------------------------")
 
 

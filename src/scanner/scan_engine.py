@@ -22,10 +22,10 @@ class ScanOrchestrator:
         self.sqli_scanner = SQLiScanner()
 
     def run_workflow(self):
-        self.logger.info(f"[Job {self.job_id}] Starting Discovery Phase...")
+        self.logger.info(f"[ScanEngine][Job {self.job_id}] Starting Discovery Phase...")
 
         crawled_targets = self.crawler.crawl(self.target)
-        self.logger.info(f"[*] [Job {self.job_id}] Discovery finished. Unique targets: {len(crawled_targets)}")
+        self.logger.info(f"[ScanEngine][Job {self.job_id}] Discovery finished. Unique targets: {len(crawled_targets)}")
 
         results = []
 
@@ -34,7 +34,7 @@ class ScanOrchestrator:
         elif self.attack_type == "xss":
             results = self._run_xss_scan(crawled_targets)
         else:
-            self.logger.warning(f"Unknown attack type: {self.attack_type}")
+            self.logger.warning(f"[ScanEngine] Unknown attack type: {self.attack_type}")
 
         return {
             "job_id": int(self.job_id),
@@ -49,12 +49,12 @@ class ScanOrchestrator:
             url = t["url"]
             params = dict(t).get('params', {})
 
-            self.logger.info(f"--- Analyzing: {url} ---")
+            self.logger.info(f"[ScanEngine] --- Analyzing: {url} ---")
 
-            self.logger.info(f"[Job {self.job_id}] Running Reflected Scan...")
+            self.logger.info(f"[ScanEngine][Job {self.job_id}] Running Reflected Scan...")
             findings_reflected = self.reflected_scanner.scan(url, params)
 
-            self.logger.info(f"[Job {self.job_id}] Running DOM Scan...")
+            self.logger.info(f"[ScanEngine][Job {self.job_id}] Running DOM Scan...")
             findings_dom = self.dom_scanner.scan(url, params)
 
             
@@ -68,8 +68,8 @@ class ScanOrchestrator:
         for t in targets:
             url = t["url"]
             params = dict(t).get('params', {})
-            self.logger.info(f"--- Analyzing: {url} ---")
-            self.logger.info(f"[Job {self.job_id}] Running SQLi Scan...")
+            self.logger.info(f"[ScanEngine] --- Analyzing: {url} ---")
+            self.logger.info(f"[ScanEngine][Job {self.job_id}] Running SQLi Scan...")
             findings_sqli = self.sqli_scanner.scan(url, params)
             findings.extend(findings_sqli)
         return findings

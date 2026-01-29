@@ -19,7 +19,7 @@ class Crawler:
         """
         Main Entry Point: ควบคุม Loop การ Crawl พร้อม Debug Log ละเอียด
         """
-        self.logger.info(f"[*] Starting Crawl on: {start_url} (Depth: {max_depth})")
+        self.logger.info(f"[Crawler] Starting Crawl on: {start_url} (Depth: {max_depth})")
         
         base_domain = urlparse(start_url).netloc
         self.logger.debug(f"    [DEBUG] Scope set to domain: {base_domain}")
@@ -76,7 +76,7 @@ class Crawler:
                         self.logger.debug(f"    [DEBUG] Discovered {len(new_links)} links -> Added {added_count} new to queue.")
                                 
                 except Exception as e:
-                    self.logger.error(f"[-] Error processing {current_url}: {e}")
+                    self.logger.error(f"[Crawler][-] Error processing {current_url}: {e}")
 
             browser.close()
             

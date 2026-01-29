@@ -4,11 +4,13 @@ import time
 import threading
 from src.core.auth import AuthManager
 from src.core.settings import settings
+from src.core.logger import setup_logger
 
 class BackendBridge:
     def __init__(self, auth_manager: AuthManager):
         self.auth = auth_manager
         self.active_threads = 0
+        self.logger = setup_logger("Bridge")
 
     def send_heartbeat(self):
         """ ส่ง Heartbeat พร้อม load data"""
@@ -18,7 +20,7 @@ class BackendBridge:
         try:
             headers =self.auth.get_headers()
 
-            url = f"{settings.backend_url}{settings.HEART_BEAT_ENDPOINT}"
+            url = f"{settings.backend_url}{settings.heartbeat}"
 
             payload = {
                 "current_load": self.active_threads,
@@ -29,20 +31,20 @@ class BackendBridge:
 
 
             if response.status_code == 200:
-                print(f"💓 Heartbeat OK Load: {self.active_threads}/{settings.maxThread}")
+                self.logger.info(f"[Bridge] 💓 Heartbeat OK Load: {self.active_threads}/{settings.maxThread}")
                 return True
             
             elif response.status_code == 401:
-                print("⚠️ Heartbeat 401: Token Expired. Renewing...")
+                self.logger.info("[Bridge] ⚠️ Heartbeat 401: Token Expired. Renewing...")
                 if self.auth.verify_worker(): # ลองต่ออายุ
                     return self.send_heartbeat() # ส่งใหม่
             
             elif response.status_code == 403:
-                print("Heartbeat 403: Access Revoked!")
+                self.logger.info("[Bridge] Heartbeat 403: Access Revoked!")
                 self.emergency_shutdown("Server rejected heartbeat (Key Revoked).")
 
         except Exception as e:
-            print(f"⚠️ Heartbeat Failed (Network Error): {e}")
+            self.logger.error(f"[Bridge] ⚠️ Heartbeat Failed (Network Error): {e}")
         
         return False
     
@@ -60,7 +62,7 @@ class BackendBridge:
         # สร้าง Thread และสั่งรัน (Daemon=True คือถ้าปิดโปรแกรมหลัก Thread นี้จะดับด้วย)
         hb_thread = threading.Thread(target=loop, daemon=True)
         hb_thread.start()
-        print("📡 Background Heartbeat started.")
+        self.logger.info("[Bridge] 📡 Background Heartbeat started.")
 
 
     def post_result(self, data):
@@ -72,7 +74,7 @@ class BackendBridge:
             if not self.auth.verify_worker():
                 return None
 
-        url = f"{settings.backend_url}{settings.SUBMIT_TASK_ENDPOINT}"
+        url = f"{settings.backend_url}{settings.send_pentest_log}"
 
         for attempt in range(2):
             try:
@@ -82,21 +84,21 @@ class BackendBridge:
                     return response
                 
                 if response.status_code in [401, 403]:
-                    print(f"[Attempt {attempt+1}] Token Invalid. Renewing...")
+                    self.logger.info(f"[Bridge][Attempt {attempt+1}] Token Invalid. Renewing...")
                     if not self.auth.verify_worker():
                         self.emergency_shutdown("Access Revoked.")
                         break
                     continue
                 if response.status_code >= 500:
-                    print(f"Server Error ({response.status_code}). Waiting 5s...")
+                    self.logger.info(f"[Bridge][Attempt {attempt+1}] Server Error ({response.status_code}). Waiting 5s...")
                     time.sleep(5)
                     continue
-
-                print(f"❌ Failed with status {response.status_code}: {response.text}")
+                    
+                self.logger.error(f"[Bridge][Attempt {attempt+1}] ❌ Failed with status {response.status_code}: {response.text}")
                 break
 
             except requests.exceptions.RequestException as e:
-                print(f"📡 Network Error: {e}")
+                self.logger.error(f"[Bridge][Attempt {attempt+1}] 📡 Network Error: {e}")
                 time.sleep(5)
 
         return None
@@ -107,7 +109,7 @@ class BackendBridge:
             if not self.auth.verify_worker():
                 return None
             
-        url = f"{settings.backend_url}{settings.UPDATE_STATUS_JOB}"
+        url = f"{settings.backend_url}{settings.update_job_status}"
 
 
         for attempt in range(2):
@@ -118,28 +120,28 @@ class BackendBridge:
                     return response
                 
                 if response.status_code in [401, 403]:
-                    print(f"[Attempt {attempt+1}] Token Invalid. Renewing...")
+                    self.logger.info(f"[Bridge][Attempt {attempt+1}] Token Invalid. Renewing...")
                     if not self.auth.verify_worker():
                         self.emergency_shutdown("Access Revoked.")
                         break
                     continue
                 if response.status_code >= 500:
-                    print(f"Server Error ({response.status_code}). Waiting 5s...")
+                    self.logger.info(f"[Bridge][Attempt {attempt+1}] Server Error ({response.status_code}). Waiting 5s...")
                     time.sleep(5)
                     continue
 
-                print(f"❌ Failed with status {response.status_code}: {response.text}")
+                self.logger.error(f"[Bridge][Attempt {attempt+1}] ❌ Failed with status {response.status_code}: {response.text}")
                 break
 
             except requests.exceptions.RequestException as e:
-                print(f"📡 Network Error: {e}")
+                self.logger.error(f"[Bridge][Attempt {attempt+1}] 📡 Network Error: {e}")
                 time.sleep(5)
 
         return None
 
     def emergency_shutdown(self, reason):
         """กรณีเกิดข้อผิดพลาดร้ายแรง ให้หยุดการทำงานทันที"""
-        print(f"🛑 EMERGENCY SHUTDOWN: {reason}")
+        self.logger.error(f"[Bridge] 🛑 EMERGENCY SHUTDOWN: {reason}")
         self.auth.reset()
         settings.reset()
         # หน่วงเวลาเล็กน้อยเพื่อให้ระบบบันทึก Log ก่อนจบโปรแกรม

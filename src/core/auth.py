@@ -1,10 +1,11 @@
 import requests
 from src.core.settings import settings
-
+from src.core.logger import setup_logger
 
 class AuthManager:
     def __init__(self):
         self.token = None
+        self.logger = setup_logger("AuthManager")
 
     def verify_worker(self):
         """แลก Access Key เป็น JWT Token"""
@@ -20,17 +21,16 @@ class AuthManager:
 
 
             if response.status_code == 200:
-                print("[Auth] Verified Success")
+                self.logger.info("[Auth] Verified Success")
                 data = response.json()
                 self.token = data.get("token")
                 return True
             else:
-                print(f"[Auth] Verification Failed: {response.status_code}")
-                print(response.text)
+                self.logger.error(f"[Auth] Verification Failed: {response.status_code}")
                 return False
 
         except Exception as e:
-            print(f"[Auth] Critical Error during verification: {e}")
+            self.logger.error(f"[Auth] Critical Error during verification: {e}")
             return False
 
     def get_headers(self):

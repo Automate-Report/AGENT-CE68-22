@@ -22,7 +22,7 @@ class WorkerEngine:
         )
         self.redis_client = redis.Redis(connection_pool=self.pool)
 
-        self.queue_name = f"queue:worker:{settings.worker_id}"
+        self.queue_name = f"system:queue:worker:{settings.worker_id}"
         
         self.executor = ThreadPoolExecutor(max_workers=settings.maxThread)
 

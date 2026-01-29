@@ -9,7 +9,7 @@ class AuthManager:
     def verify_worker(self):
         """แลก Access Key เป็น JWT Token"""
         try: 
-            url = f"{settings.backend_url}{settings.VERIFY_ENDPOINT}"
+            url = f"{settings.backend_url}{settings.verify_endpoint}"
             payload = {
                 "worker_id": settings.worker_id,
                 "key": settings.access_key,

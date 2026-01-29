@@ -1,50 +1,24 @@
 import os
-import sys
 
 # [FIX] บังคับให้ Playwright ไปหา Browser ในเครื่อง (System Path) 
 # แทนที่จะหาในโฟลเดอร์ _internal ของ .exe
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
 
 
-import time
-from src.core.settings import settings
 from src.core.worker_engine import WorkerEngine
 from src.core.auth import AuthManager
 from src.networking.bridge import BackendBridge
-from src.test import test_xss, test_sqli
+
 
 def main():
 
-
-    n = 0
     auth = AuthManager()
-    print(auth.verify_worker())
-    client = BackendBridge(auth)
 
-    # print(f"🚀 Worker Started...")
-    
+    client = BackendBridge(auth)
     client.start_heartbeat_loop()
 
     WorkerEngine().start()
 
-    # while True:
-    #     n+=1
-    #     payload = {
-    #         "cnt": n,
-    #         "status": "working"
-    #     }
-
-    #     result = client.post(settings.SUBMIT_TASK_ENDPOINT, payload)
-    #     print(result)
-
-
-    print(f"✅ [Cycle {n}] ")
-
-    # time.sleep(settings.poll_interval)
-    # result = test_xss()
-    # result = test_sqli()
-
-    
 
 if __name__ == "__main__":
     main()

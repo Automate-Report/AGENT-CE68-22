@@ -101,6 +101,42 @@ class BackendBridge:
 
         return None
     
+    def update_status_job(self, data):
+        # Check ว่ามี Token รึยัง
+        if not self.auth.token:
+            if not self.auth.verify_worker():
+                return None
+            
+        url = f"{settings.backend_url}{settings.UPDATE_STATUS_JOB}"
+
+
+        for attempt in range(2):
+            try:
+                response = requests.post(url, json=data, headers=self.auth.get_headers(), timeout=30)
+
+                if response.status_code == 201 or response.status_code == 200 or response.status_code == 210:
+                    return response
+                
+                if response.status_code in [401, 403]:
+                    print(f"[Attempt {attempt+1}] Token Invalid. Renewing...")
+                    if not self.auth.verify_worker():
+                        self.emergency_shutdown("Access Revoked.")
+                        break
+                    continue
+                if response.status_code >= 500:
+                    print(f"Server Error ({response.status_code}). Waiting 5s...")
+                    time.sleep(5)
+                    continue
+
+                print(f"❌ Failed with status {response.status_code}: {response.text}")
+                break
+
+            except requests.exceptions.RequestException as e:
+                print(f"📡 Network Error: {e}")
+                time.sleep(5)
+
+        return None
+
     def emergency_shutdown(self, reason):
         """กรณีเกิดข้อผิดพลาดร้ายแรง ให้หยุดการทำงานทันที"""
         print(f"🛑 EMERGENCY SHUTDOWN: {reason}")

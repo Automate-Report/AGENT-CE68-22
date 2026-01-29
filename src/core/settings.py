@@ -20,7 +20,7 @@ class Settings:
     VERIFY_ENDPOINT="/workers/verify"
     SUBMIT_TASK_ENDPOINT="/pentest-logs/"
     HEART_BEAT_ENDPOINT="/workers/heartbeat"
-    UPDATE_JOB_STATUS = "/jobs/update_status"
+    UPDATE_STATUS_JOB = "/jobs/update_status/"
 
 
     #[Worker] ชื่อ config

@@ -91,6 +91,11 @@ class WorkerEngine:
                         # หาก Thread เต็ม งานจะเข้าคิวรออัตโนมัติ
                         self.executor.submit(self.run_task, job_data)
                         print(f"📦 New Job Received: {job_id}")
+                        payload = {
+                            "job_id": job_id,
+                            "status": "running"
+                        }
+                        self.bridge.update_status_job(payload)
 
                     except json.JSONDecodeError:
                         print("❌ Error: Could not decode JSON")

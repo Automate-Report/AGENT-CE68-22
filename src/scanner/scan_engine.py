@@ -1,3 +1,6 @@
+import io
+import logging
+
 from src.scanner.crawler import Crawler
 from src.exploits.xss.scanner import XSSScanner
 from src.exploits.xss.dom_scanner import DOMScanner
@@ -13,7 +16,7 @@ class ScanOrchestrator:
         self.attack_type = job_data.get("attack_type")
         # self.cred = job_data.get("credentials")
 
-        self.logger = setup_logger("ScanEngine")
+        self.logger = setup_logger(f"ScanEngine-{self.job_id}")
         # Init Tools
         self.requester = Requester()
         self.crawler = Crawler()
@@ -21,27 +24,68 @@ class ScanOrchestrator:
         self.dom_scanner = DOMScanner()
         self.sqli_scanner = SQLiScanner()
 
+        # Logger
+        self.log_capture = io.StringIO()
+        self.capture_handler = logging.StreamHandler(self.log_capture)
+
+        formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', '%H:%M:%S')
+        self.capture_handler.setFormatter(formatter)
+        
+        # เพิ่ม Handler ตัวนี้เข้าไปใน logger (ตอนนี้ logger จะพ่นออก 2 ทาง: จอภาพ + ตัวแปร)
+        self.logger.addHandler(self.capture_handler)
+
     def run_workflow(self):
-        self.logger.info(f"[ScanEngine][Job {self.job_id}] Starting Discovery Phase...")
+        try:
+            self.logger.info(f"[ScanEngine][Job {self.job_id}] Starting Discovery Phase...")
 
-        crawled_targets = self.crawler.crawl(self.target)
-        self.logger.info(f"[ScanEngine][Job {self.job_id}] Discovery finished. Unique targets: {len(crawled_targets)}")
+            crawled_targets = self.crawler.crawl(self.target)
+            self.logger.info(f"[ScanEngine][Job {self.job_id}] Discovery finished. Unique targets: {len(crawled_targets)}")
 
-        results = []
+            results = []
 
-        if self.attack_type == "sql_injection":
-            results = self._run_sqli_scan(crawled_targets)
-        elif self.attack_type == "xss":
-            results = self._run_xss_scan(crawled_targets)
-        else:
-            self.logger.warning(f"[ScanEngine] Unknown attack type: {self.attack_type}")
+            if self.attack_type == "sql_injection":
+                results = self._run_sqli_scan(crawled_targets)
+            elif self.attack_type == "xss":
+                results = self._run_xss_scan(crawled_targets)
+            else:
+                self.logger.warning(f"[ScanEngine] Unknown attack type: {self.attack_type}")
+                
+            execution_logs = self.log_capture.getvalue().splitlines()
 
-        return {
-            "job_id": int(self.job_id),
-            "status": "completed",
-            "findings": results,
-            "target_count": len(crawled_targets)
-        }
+            status = "found" if results else "not found"
+
+            return {
+                "job_id": int(self.job_id),
+                "status": status,
+                "findings": results,
+                "target_count": len(crawled_targets),
+                "error_log": None,
+                "crawler_urls": crawled_targets,
+                "execution_logs": execution_logs
+            }
+        except Exception as e:
+
+            error_msg = str(e)
+
+            self.logger.error(f"❌ Critical Error: {error_msg}")
+
+            execution_logs = self.log_capture.getvalue().splitlines()
+
+            return {
+                "job_id": int(self.job_id),
+                "status": "failed",
+                "findings": [],
+                "target_count": 0,
+                "error_log": error_msg,
+                "crawler_urls": [],
+                "execution_logs": execution_logs
+            }
+        
+        finally:
+            # การันตีว่า Handler จะถูกลบออกเสมอ ไม่ว่ารันผ่านหรือพัง
+            # เพื่อป้องกัน memory leak หรือ log พ่นซ้ำในอนาคต
+            if hasattr(self, 'capture_handler'):
+                self.logger.removeHandler(self.capture_handler)
     
     def _run_xss_scan(self, targets):
         findings = []

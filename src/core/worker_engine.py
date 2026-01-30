@@ -39,6 +39,8 @@ class WorkerEngine:
 
             orchestrator = ScanOrchestrator(job_data)
             scan_result = orchestrator.run_workflow()
+
+            print(scan_result)
             
             # ส่ง pen test log กลับไปที่ Backend
             self.bridge.post_result(scan_result)

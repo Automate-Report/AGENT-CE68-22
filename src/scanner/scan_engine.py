@@ -1,5 +1,7 @@
 import io
 import logging
+import requests
+from requests.exceptions import RequestException
 
 from src.scanner.crawler import Crawler
 from src.exploits.xss.scanner import XSSScanner
@@ -33,6 +35,30 @@ class ScanOrchestrator:
         
         # เพิ่ม Handler ตัวนี้เข้าไปใน logger (ตอนนี้ logger จะพ่นออก 2 ทาง: จอภาพ + ตัวแปร)
         self.logger.addHandler(self.capture_handler)
+    
+    def _is_target_reachable(self, target_url: str, timeout: int = 10) -> tuple[bool, str]:
+        """
+        เช็กว่า Target URL สามารถเข้าถึงได้หรือไม่
+        คืนค่าเป็น (True/False, ข้อความ Error)
+        """
+        try:
+            # ใช้ verify=False ถ้าต้องการข้ามการเช็ก SSL Certificate
+            # ใช้ allow_redirects=True เผื่อเว็บมีการเปลี่ยนจาก http เป็น https
+            response = requests.head(
+                target_url, 
+                timeout=timeout, 
+                allow_redirects=True, 
+                verify=False 
+            )
+            
+            # ถ้าได้ Status Code 200-399 ถือว่าปกติ
+            if response.status_code < 400:
+                return True, "Reachable"
+            else:
+                return False, f"Target returned status code: {response.status_code}"
+                
+        except RequestException as e:
+            return False, f"Could not connect to target: {str(e)}"
 
     def _get_captured_logs(self):
         """ดึง log ทั้งหมดที่สะสมไว้ใน StringIO"""
@@ -41,13 +67,28 @@ class ScanOrchestrator:
 
     def run_workflow(self):
         try:
+            # 1. Check Connectivity
+            is_up, message = self._is_target_reachable(self.target)
+            if not is_up:
+                error_msg = f"Target Unreachable: {message}"
+                self.logger.error(f"[Job {self.job_id}] {error_msg}")
+                
+                # คืนค่าเพื่อให้ run_task เป็นคนส่ง bridge.post_result เอง
+                return {
+                    "job_id": int(self.job_id),
+                    "status": "failed",
+                    "findings": [],
+                    "target_count": 0,
+                    "error_log": error_msg,
+                    "crawler_urls": [],
+                    "execution_logs": self._get_captured_logs().splitlines()
+                }
+            
             self.logger.info(f"[ScanEngine][Job {self.job_id}] Starting Discovery Phase...")
-
             crawled_targets = self.crawler.crawl(self.target)
             self.logger.info(f"[ScanEngine][Job {self.job_id}] Discovery finished. Unique targets: {len(crawled_targets)}")
 
             results = []
-
             if self.attack_type == "sql_injection":
                 results = self._run_sqli_scan(crawled_targets)
             elif self.attack_type == "xss":
@@ -64,12 +105,11 @@ class ScanOrchestrator:
                 "target_count": len(crawled_targets),
                 "error_log": None,
                 "crawler_urls": crawled_targets,
-                "execution_logs": self._get_captured_logs()
+                "execution_logs": self._get_captured_logs().splitlines()
             }
         except Exception as e:
 
             error_msg = str(e)
-
             self.logger.error(f"❌ Critical Error: {error_msg}")
 
             return {
@@ -79,14 +119,17 @@ class ScanOrchestrator:
                 "target_count": 0,
                 "error_log": error_msg,
                 "crawler_urls": [],
-                "execution_logs": self._get_captured_logs()
+                "execution_logs": self._get_captured_logs().splitlines()
             }
         
         finally:
             # การันตีว่า Handler จะถูกลบออกเสมอ ไม่ว่ารันผ่านหรือพัง
             # เพื่อป้องกัน memory leak หรือ log พ่นซ้ำในอนาคต
             if hasattr(self, 'capture_handler'):
+                self.logger.info(f"Closing Logger Handler for Job {self.job_id}")
+                self.capture_handler.flush() # มั่นใจว่าข้อมูลลง StringIO ครบ
                 self.logger.removeHandler(self.capture_handler)
+                self.capture_handler.close()
     
     def _run_xss_scan(self, targets):
         findings = []

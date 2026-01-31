@@ -34,6 +34,11 @@ class ScanOrchestrator:
         # เพิ่ม Handler ตัวนี้เข้าไปใน logger (ตอนนี้ logger จะพ่นออก 2 ทาง: จอภาพ + ตัวแปร)
         self.logger.addHandler(self.capture_handler)
 
+    def _get_captured_logs(self):
+        """ดึง log ทั้งหมดที่สะสมไว้ใน StringIO"""
+        self.capture_handler.flush() # ดันข้อมูลที่ค้างอยู่ลง stream
+        return self.log_capture.getvalue()
+
     def run_workflow(self):
         try:
             self.logger.info(f"[ScanEngine][Job {self.job_id}] Starting Discovery Phase...")
@@ -49,8 +54,6 @@ class ScanOrchestrator:
                 results = self._run_xss_scan(crawled_targets)
             else:
                 self.logger.warning(f"[ScanEngine] Unknown attack type: {self.attack_type}")
-                
-            execution_logs = self.log_capture.getvalue().splitlines()
 
             status = "found" if results else "not found"
 
@@ -61,15 +64,13 @@ class ScanOrchestrator:
                 "target_count": len(crawled_targets),
                 "error_log": None,
                 "crawler_urls": crawled_targets,
-                "execution_logs": execution_logs
+                "execution_logs": self._get_captured_logs()
             }
         except Exception as e:
 
             error_msg = str(e)
 
             self.logger.error(f"❌ Critical Error: {error_msg}")
-
-            execution_logs = self.log_capture.getvalue().splitlines()
 
             return {
                 "job_id": int(self.job_id),
@@ -78,7 +79,7 @@ class ScanOrchestrator:
                 "target_count": 0,
                 "error_log": error_msg,
                 "crawler_urls": [],
-                "execution_logs": execution_logs
+                "execution_logs": self._get_captured_logs()
             }
         
         finally:

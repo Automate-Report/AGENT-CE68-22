@@ -10,9 +10,9 @@ from src.core.logger import setup_logger
 from urllib.parse import urlparse, urljoin
 
 class Crawler:
-    def __init__(self):
+    def __init__(self, logger = None):
         self.deduplicator = Deduplicator()
-        self.logger = setup_logger("Crawler")
+        self.logger = logger or setup_logger("Crawler")
         self.collected_targets = []  # เก็บ {url, params}
 
     def crawl(self, start_url: str, max_depth: int = 2):

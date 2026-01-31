@@ -12,14 +12,14 @@ from src.core.logger import setup_logger
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class Requester:
-    def __init__(self):
+    def __init__(self, logger = None):
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": "SecurityWorker-Agent/1.0 (Educational)",
             "Accept": "*/*"
         })
         self.timeout = 10
-        self.logger = setup_logger("Requester")
+        self.logger = logger or setup_logger("Requester")
 
     def get(self, url, params=None):
         try:

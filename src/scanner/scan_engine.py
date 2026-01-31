@@ -18,11 +18,11 @@ class ScanOrchestrator:
 
         self.logger = setup_logger(f"ScanEngine-{self.job_id}")
         # Init Tools
-        self.requester = Requester()
-        self.crawler = Crawler()
-        self.reflected_scanner = XSSScanner() 
-        self.dom_scanner = DOMScanner()
-        self.sqli_scanner = SQLiScanner()
+        self.requester = Requester(logger=self.logger)
+        self.crawler = Crawler(logger=self.logger)
+        self.reflected_scanner = XSSScanner(logger=self.logger) 
+        self.dom_scanner = DOMScanner(logger=self.logger)
+        self.sqli_scanner = SQLiScanner(logger=self.logger)
 
         # Logger
         self.log_capture = io.StringIO()

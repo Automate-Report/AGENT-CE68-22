@@ -27,31 +27,6 @@ class WorkerEngine:
         self.executor = ThreadPoolExecutor(max_workers=settings.maxThread)
         self.logger = setup_logger("Worker Engine")
 
-    def _is_target_reachable(target_url: str, timeout: int = 10) -> tuple[bool, str]:
-        """
-        เช็กว่า Target URL สามารถเข้าถึงได้หรือไม่
-        คืนค่าเป็น (True/False, ข้อความ Error)
-        """
-        try:
-            # ใช้ verify=False ถ้าต้องการข้ามการเช็ก SSL Certificate
-            # ใช้ allow_redirects=True เผื่อเว็บมีการเปลี่ยนจาก http เป็น https
-            response = requests.head(
-                target_url, 
-                timeout=timeout, 
-                allow_redirects=True, 
-                verify=False 
-            )
-            
-            # ถ้าได้ Status Code 200-399 ถือว่าปกติ
-            if response.status_code < 400:
-                return True, "Reachable"
-            else:
-                return False, f"Target returned status code: {response.status_code}"
-                
-        except RequestException as e:
-            return False, f"Could not connect to target: {str(e)}"
-
-
     def run_task(self, job_data: dict):
         """
         Wrapper สำหรับการรันงานใน Thread

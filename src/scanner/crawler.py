@@ -1,7 +1,3 @@
-# Hybrid Crawler
-# มี 2 แบบ
-#     -fast request static website
-#     -slow spa website
 import time
 from playwright.sync_api import sync_playwright, Page
 from src.scanner.deduplicator import Deduplicator
@@ -9,11 +5,19 @@ from src.core.logger import setup_logger
 
 from urllib.parse import urlparse, urljoin
 
+class Target:
+    def __init__(self, url, method, content_type, params):
+        self.url = url
+        self.method = method
+        self.content_type = content_type
+        self.params = params
+
 class Crawler:
     def __init__(self, logger = None):
         self.deduplicator = Deduplicator()
         self.logger = logger or setup_logger("Crawler")
         self.collected_targets = []  # เก็บ {url, params}
+        self.visited_urls = set()
 
     def crawl(self, start_url: str, max_depth: int = 2):
         """

@@ -1,19 +1,25 @@
 from playwright.sync_api import sync_playwright, Page, Request
+
 from src.scanner.deduplicator import Deduplicator
+from src.scanner.auth_handler import AuthHandler
 from src.core.logger import setup_logger
 from urllib.parse import urlparse, urljoin
 
 class Crawler:
-    def __init__(self, logger=None):
+    def __init__(self, cred: dict, logger=None):
         self.deduplicator = Deduplicator()
         self.logger = logger or setup_logger("Crawler")
         self.collected_targets = []
         self.visited_urls = set()
+        self.auth_handler = AuthHandler()
+        self.is_authenticated = False
+        self.credential = cred
 
     def crawl(self, start_url: str, max_depth: int = 2):
         self.logger.info(f"[Crawler] Starting Crawl on: {start_url} (Depth: {max_depth})")
         base_domain = urlparse(start_url).netloc
         queue = [(start_url, 0)]
+        
 
         with sync_playwright() as p:
             browser = p.chromium.launch(channel="chrome", headless=True)
@@ -34,9 +40,25 @@ class Crawler:
                 self.visited_urls.add(current_url)
 
                 try:
+
                     # โหลดหน้าเว็บและเก็บข้อมูล Forms/URL Params
                     # Note: _process_page ถูกเรียกใช้งานภายในนี้
                     response = page.goto(current_url, wait_until="domcontentloaded", timeout=15000)
+
+                    # --- [NEW] Discovery Auth Logic ---
+                    # ถ้ายังไม่ได้ Login และมี Credential มา ให้พยายามหาทาง Login ในทุกหน้าที่ผ่านไป
+                    if not self.is_authenticated and self.credential:
+                        if self.auth_handler.find_and_login(page, self.credential):
+                            self.is_authenticated = True
+                            # เมื่อ Login สำเร็จ ให้เคลียร์คิวแล้วเริ่มสำรวจใหม่จากหน้าปัจจุบัน 
+                            # เพื่อให้เจอเมนูที่เพิ่งโผล่มาหลัง Login
+                            queue.insert(0, (page.url, current_depth))
+                            continue
+
+                    # --- [NEW] Check Session Timeout ---
+                    # ถ้าเคย Login แล้ว แต่อยู่ดีๆ หน้า Login โผล่มา ให้ Login ซ้ำ
+                    if self.is_authenticated and page.locator('input[type="password"]').is_visible():
+                        self.auth_handler.login_with_heuristics(page, self.credential)
                     
                     if response and response.status < 400:
                         # ดึงข้อมูลจาก Page Content
@@ -103,6 +125,17 @@ class Crawler:
         all_params.update(self._extract_url_params(url))
         all_params.update(self._extract_form_params(page))
         # คุณสามารถเพิ่ม _extract_forms_and_inputs (POST) เข้ามาเสริมได้ที่นี่
+        if page.locator('input[type="password"]').is_visible():
+            if self.credential:
+                # กรณีมี User/Pass: ใช้ Heuristic Login ปกติ
+                self.auth_handler.login_with_heuristics(page, self.credential)
+            else:
+                # กรณีไม่มี User/Pass: ใช้ Aggressive Entry (SQLi/Default)
+                success = self.auth_handler.aggressive_entry(page)
+                if success:
+                    self.is_authenticated = True
+                    self.logger.info(f"[Crawler] Found a way in! Session captured.")
+
         return all_params
 
     # --- Utility Functions (เหมือนเดิมที่คุณเขียนไว้) ---

@@ -53,3 +53,24 @@ class Requester:
                 
         except Exception as e:
             return None
+        
+    def set_cookies(self, cookies):
+        """
+        รับคุกกี้ได้ทั้งรูปแบบ List (จาก Playwright) หรือ Dict
+        และนำไปใส่ใน session เพื่อใช้ยิง request ครั้งต่อๆ ไป
+        """
+        try:
+            if isinstance(cookies, list):
+                # กรณีได้รับมาจาก Playwright: [{'name': '...', 'value': '...'}, ...]
+                for cookie in cookies:
+                    self.session.cookies.set(cookie['name'], cookie['value'])
+                self.logger.info(f"[Requester] 🍪 {len(cookies)} cookies injected from Playwright.")
+            
+            elif isinstance(cookies, dict):
+                # กรณีได้รับมาเป็น Dict ธรรมดา: {'session_id': '123'}
+                requests.utils.add_dict_to_cookiejar(self.session.cookies, cookies)
+                self.logger.info(f"[Requester] 🍪 Cookies injected from dictionary.")
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"[Requester] ❌ Failed to set cookies: {e}")

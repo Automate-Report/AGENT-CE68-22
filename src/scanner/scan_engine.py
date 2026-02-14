@@ -16,12 +16,12 @@ class ScanOrchestrator:
         self.job_id = job_data.get("job_id")
         self.target = job_data.get("target_url")
         self.attack_type = job_data.get("attack_type")
-        # self.cred = job_data.get("credentials")
+        self.cred = job_data.get("credential")
 
         self.logger = setup_logger(f"ScanEngine-{self.job_id}")
         # Init Tools
         self.requester = Requester(logger=self.logger)
-        self.crawler = Crawler(logger=self.logger)
+        self.crawler = Crawler(logger=self.logger, cred=self.cred)
         self.reflected_scanner = XSSScanner(logger=self.logger) 
         self.dom_scanner = DOMScanner(logger=self.logger)
         self.sqli_scanner = SQLiScanner(logger=self.logger)
@@ -87,6 +87,12 @@ class ScanOrchestrator:
             self.logger.info(f"[ScanEngine][Job {self.job_id}] Starting Discovery Phase...")
             crawled_targets = self.crawler.crawl(self.target)
             self.logger.info(f"[ScanEngine][Job {self.job_id}] Discovery finished. Unique targets: {len(crawled_targets)}")
+
+            if self.crawler.auth_handler.cookies:
+                self.logger.info("[Orchestrator] 🍪 Passing session cookies to all scanners.")
+                # แปลงคุกกี้จาก Playwright format ไปเป็น Requests format
+                formatted_cookies = {c['name']: c['value'] for c in self.crawler.auth_handler.cookies}
+                self.requester.set_cookies(formatted_cookies) # เพิ่ม Method นี้ใน Requester
 
             results = []
             if self.attack_type == "sql_injection":

@@ -10,10 +10,10 @@ def send_test_jobs():
     print(f"📡 Sending test jobs to {queue_name}...")
     
     test_jobs = [
-        {"job_id": 1, "target_url": "http://testphp.vulnweb.com/search.php", "attack_type": "xss", "credential": {"user": "test", "password": "test"}},
+        {"job_id": 1, "target_url": "http://localhost:4040/#/", "attack_type": "xss", "credential": {"username": "test", "password": "test"}},
         # {"id": 102, "target_url": "http://xss-game.appspot.com", "attack_type": "xss", "credentials": {"user": "admin"}},
         # {"id": 103, "target_url": "http://demo.testfire.net", "attack_type": "sql_injection", "credentials": None},
-        {"job_id": 2, "target_url": "http://testphp.vulnweb.com/search.php", "attack_type": "xss", "credential": None},
+        {"job_id": 2, "target_url": "http://localhost:4040/#/", "attack_type": "sql_injection", "credential": None},
     ]
 
     for job in test_jobs:

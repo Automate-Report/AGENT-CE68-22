@@ -1,4 +1,3 @@
-import time
 from playwright.sync_api import sync_playwright, Page, Request
 from src.scanner.deduplicator import Deduplicator
 from src.core.logger import setup_logger

@@ -1,6 +1,4 @@
-# security-worker/main.py
 import requests
-
 from src.scanner.crawler import Crawler
 from src.core.logger import setup_logger
 
@@ -8,107 +6,81 @@ from src.exploits.xss.scanner import XSSScanner
 from src.exploits.xss.dom_scanner import DOMScanner
 from src.exploits.sqli.scanner import SQLiScanner
 
-def test_xss():
-    logger = setup_logger("Worker")
+def send_to_backend(data, logger):
+    """Helper function สำหรับส่งผลลัพธ์ไปที่ Backend"""
+    try:
+        backend_url = "http://localhost:8000/pentest-logs/"
+        res = requests.post(backend_url, json=data)
+        if res.status_code == 201:
+            logger.info("[+] Report sent to Backend successfully!")
+        else:
+            logger.error(f"[-] Failed to send report: {res.text}")
+    except Exception as e:
+        logger.error(f"[-] Backend Connection Error: {e}")
 
-    reflected_scanner = XSSScanner()
+def run_security_test():
+    logger = setup_logger("Worker")
+    
+    # Initialize Scanners
     crawler = Crawler()
+    reflected_scanner = XSSScanner()
     dom_scanner = DOMScanner()
     sqli_scanner = SQLiScanner()
 
-    logger.info("[*] Crawler is running...")
-    target_url = "http://testphp.vulnweb.com/search.php"
-    # https://public-firing-range.appspot.com/address/index.html
-    # http://testphp.vulnweb.com/search.php
-    # https://xss-game.appspot.com/level2/frame
-    # http://localhost:4040/#/search
-
-    crawled_targets = crawler.crawl(target_url)
-    logger.info(f"[*] Found {len(crawled_targets)} targets. Starting Scans...")
-    url_attacked = []
+    # Target URL ที่ต้องการทดสอบ
+    target_url = "http://testphp.vulnweb.com" 
     
-    for t in crawled_targets:
-        url = t['url']
-        params = t.get('params', {}) # จะให้ใส่มาได้ไหม
+    logger.info(f"[*] Starting Discovery on: {target_url}")
+    
+    # 1. Crawling Phase
+    # คืนค่าเป็น List ของออบเจกต์ Target (ที่มี url, method, params, content_type)
+    crawled_targets = crawler.crawl(target_url, max_depth=1)
+    
+    logger.info(f"[*] Discovery complete. Found {len(crawled_targets)} potential targets.")
+    
+    for target in crawled_targets:
+        # ดึงข้อมูลจากออบเจกต์ Target
+        url = target.url
+        method = target.method
+        params = target.params
+        c_type = target.content_type
 
-        logger.info(f"--- Analyzing: {url} ---")
+        logger.info(f"\n--- 🛡️ Analyzing: {method} {url} ---")
         
-        logger.info("[1] Running Reflected Scan...")
-        findings_reflected = reflected_scanner.scan(url, params)
+        # [1] Reflected XSS Scan (รองรับ Multi-Method)
+        logger.info(f"[1] Running Reflected Scan ({method})...")
+        findings_reflected = reflected_scanner.scan(url, params, method, c_type)
         if findings_reflected:
-            logger.info(f"[!!!] VULNERABILITY FOUND at {url}")
-            url_attacked.append(url)
+            logger.info(f"🚨 [!!!] Reflected XSS FOUND at {url}")
             for f in findings_reflected:
-                # logger.info(f"   -> Payload: {f['payload']}")
-                # logger.info(f"   -> Context: {f['context']}")
-                # logger.info(f"   -> Screenshot: {f['screenshot']}")
-                # if f.get('confirmed'):
-                #     logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
-                try:
-                    # ส่ง JSON ไปหา Backend
-                    res = requests.post("http://localhost:8000/pentest-logs/", json=f)
-                    if res.status_code == 201:
-                        print("[+] Report sent to Backend successfully!")
-                    else:
-                        print(f"[-] Failed to send report: {res.text}")
-                except Exception as e:
-                    print(f"[-] Backend Connection Error: {e}")
+                send_to_backend(f, logger)
         else:
-            logger.info(f"[-] Clean: {url}")
-        
-        logger.info("[2] Running DOM Scan...")
-        findings_dom = dom_scanner.scan(url, params)
-        if findings_dom:
-            logger.info(f"    🚨 DOM XSS Found!")
-            url_attacked.append(url)
-            for f in findings_dom:
-            #     # logger.info(f"   -> Payload: {f['payload']}")
-            #     # logger.info(f"   -> Context: {f['context']}")
-            #     # logger.info(f"   -> Screenshot: {f['screenshot']}")
-            #     # if f.get('confirmed'):
-            #     #     logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
-            #     print(f)
-                try:
-                    # ส่ง JSON ไปหา Backend
-                    res = requests.post("http://localhost:8000/pentest-logs/", json=f)
-                    if res.status_code == 201:
-                        print("[+] Report sent to Backend successfully!")
-                    else:
-                        print(f"[-] Failed to send report: {res.text}")
-                except Exception as e:
-                    print(f"[-] Backend Connection Error: {e}")
-        else:
-            logger.info(f"[-] Clean: {url}")
-        logger.info("[2] Running SQLi Scan...")
-        findings_sqli = sqli_scanner.scan(url, params)
+            logger.info(f"[-] Reflected XSS: Clean")
+
+        # [2] DOM XSS Scan
+        # หมายเหตุ: DOM XSS ส่วนใหญ่เน้นที่การ Render หน้าเว็บ (ใช้ GET เป็นหลัก)
+        if method == "GET":
+            logger.info("[2] Running DOM Scan...")
+            findings_dom = dom_scanner.scan(url, params)
+            if findings_dom:
+                logger.info(f"🚨 [!!!] DOM XSS FOUND at {url}")
+                for f in findings_dom:
+                    send_to_backend(f, logger)
+            else:
+                logger.info(f"[-] DOM XSS: Clean")
+
+        # [3] SQL Injection Scan
+        logger.info(f"[3] Running SQLi Scan ({method})...")
+        # หาก SQLiScanner ของคุณยังไม่รองรับ method ให้ส่งแค่ url, params ไปก่อน
+        findings_sqli = sqli_scanner.scan(url, params) 
         if findings_sqli:
-            logger.info(f"[!!!] VULNERABILITY FOUND at {url}")
-            url_attacked.append(url)
+            logger.info(f"🚨 [!!!] SQLi FOUND at {url}")
             for f in findings_sqli:
-            #     # logger.info(f"   -> Payload: {f['payload']}")
-            #     # logger.info(f"   -> Type: {f['type']}")
-            #     # logger.info(f"   -> Screenshot: {f['screenshot']}")
-            #     # if f.get('confirmed'):
-            #     #     logger.info(f"   -> Status: CONFIRMED (Alert Popped) 🚨")
-            #     print(f)
-                try:
-                    # ส่ง JSON ไปหา Backend
-                    res = requests.post("http://localhost:8000/pentest-logs/", json=f)
-                    if res.status_code == 201:
-                        print("[+] Report sent to Backend successfully!")
-                    else:
-                        print(f"[-] Failed to send report: {res.text}")
-                except Exception as e:
-                    print(f"[-] Backend Connection Error: {e}")
+                send_to_backend(f, logger)
         else:
-            logger.info(f"[-] Clean: {url}")
+            logger.info(f"[-] SQLi: Clean")
 
-    # print(findings_sqli)
-    return True
+    logger.info("\n[*] --- All scans completed ---")
 
-def test_sqli():
-    sqli_scanner = SQLiScanner()
-    results = sqli_scanner.scan("http://testphp.vulnweb.com/listproducts.php", {"cat": "1"})
-
-    return results
-
+if __name__ == "__main__":
+    run_security_test()

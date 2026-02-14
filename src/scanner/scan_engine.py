@@ -3,7 +3,7 @@ import logging
 import requests
 from requests.exceptions import RequestException
 
-from src.scanner.crawler import Crawler
+from src.scanner.crawler import Crawler, Target
 from src.exploits.xss.scanner import XSSScanner
 from src.exploits.xss.dom_scanner import DOMScanner
 from src.exploits.sqli.scanner import SQLiScanner
@@ -131,16 +131,18 @@ class ScanOrchestrator:
                 self.logger.removeHandler(self.capture_handler)
                 self.capture_handler.close()
     
-    def _run_xss_scan(self, targets):
+    def _run_xss_scan(self, targets: list):
         findings = []
         for t in targets:
-            url = t["url"]
-            params = dict(t).get('params', {})
+            url = t.url
+            method = t.method
+            params = t.params
+            content_type = t.content_type
 
             self.logger.info(f"[ScanEngine] --- Analyzing: {url} ---")
 
             self.logger.info(f"[ScanEngine][Job {self.job_id}] Running Reflected Scan...")
-            findings_reflected = self.reflected_scanner.scan(url, params)
+            findings_reflected = self.reflected_scanner.scan(url, params, method, content_type)
 
             self.logger.info(f"[ScanEngine][Job {self.job_id}] Running DOM Scan...")
             findings_dom = self.dom_scanner.scan(url, params)

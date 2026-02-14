@@ -136,7 +136,7 @@ class ScanOrchestrator:
         for t in targets:
             url = t["url"]
             method = t["method"]
-            params = t["params"]
+            params = dict(t).get('params', {})
             content_type = t["content_type"]
 
             self.logger.info(f"[ScanEngine] --- Analyzing: {url} ---")
@@ -145,7 +145,7 @@ class ScanOrchestrator:
             findings_reflected = self.reflected_scanner.scan(url, params, method, content_type)
 
             self.logger.info(f"[ScanEngine][Job {self.job_id}] Running DOM Scan...")
-            findings_dom = self.dom_scanner.scan(url, params)
+            findings_dom = self.dom_scanner.scan(url, params, method)
 
             
             findings.extend(findings_reflected)
@@ -158,8 +158,11 @@ class ScanOrchestrator:
         for t in targets:
             url = t["url"]
             params = dict(t).get('params', {})
+            method = t["method"]
+            content_type = t["content_type"]
+
             self.logger.info(f"[ScanEngine] --- Analyzing: {url} ---")
             self.logger.info(f"[ScanEngine][Job {self.job_id}] Running SQLi Scan...")
-            findings_sqli = self.sqli_scanner.scan(url, params)
+            findings_sqli = self.sqli_scanner.scan(url, params, method, content_type)
             findings.extend(findings_sqli)
         return findings

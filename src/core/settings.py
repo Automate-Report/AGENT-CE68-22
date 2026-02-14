@@ -3,7 +3,6 @@ import json
 import os
 import getpass
 import requests
-import platform
 
 from cryptography.fernet import Fernet
 

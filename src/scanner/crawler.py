@@ -3,13 +3,6 @@ from src.scanner.deduplicator import Deduplicator
 from src.core.logger import setup_logger
 from urllib.parse import urlparse, urljoin
 
-class Target:
-    def __init__(self, url, method, content_type, params):
-        self.url = url
-        self.method = method
-        self.content_type = content_type
-        self.params = params
-
 class Crawler:
     def __init__(self, logger=None):
         self.deduplicator = Deduplicator()
@@ -76,12 +69,12 @@ class Crawler:
 
         if not self.deduplicator.is_seen(sig):
             self.deduplicator.add(sig)
-            target = Target(
-                url=base_url,
-                method=method,
-                content_type=content_type,
-                params=params
-            )
+            target = {
+                "url": base_url,
+                "method": method,
+                "content_type": content_type,
+                "params": params
+            }
             self.collected_targets.append(target)
             self.logger.info(f"     [+] Target Discovered: {method} {base_url} ({len(params)} params)")
 

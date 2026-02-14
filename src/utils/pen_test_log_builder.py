@@ -29,20 +29,38 @@ class VulnerabilityBuilder:
         vuln_group = "SQLi" if "SQLi" in vuln_type else "XSS"
         kb = self.knowledge_base.get(vuln_group, {})
 
-        # ดึงข้อมูลเสริม
-        method = kwargs.get("method", "GET").upper()
-        content_type = kwargs.get("content_type", "form")
-        response_obj = kwargs.get("response_obj", None)
+        # --- แก้ไขจุดที่ 1: ดึงเฉพาะค่าดิบออกมา และบังคับเป็น String/Int เสมอ ---
+        # การครอบด้วย str() จะช่วยล้าง Object ที่อาจหลงเหลืออยู่ในตัวแปร method หรือ url
+        method = str(kwargs.get("method", "GET")).upper()
+        content_type = str(kwargs.get("content_type", "form"))
+        url = str(url)
+        param = str(param)
+        payload = str(payload)
         
-        # ดึงค่าจาก Response (ถ้ามี)
-        status_code = response_obj.status_code if response_obj else 0
-        res_headers = dict(response_obj.headers) if response_obj else {}
-        req_headers = dict(response_obj.request.headers) if response_obj and hasattr(response_obj.request, 'headers') else {}
+        # --- แก้ไขจุดที่ 2: ดึงข้อมูลจาก Response แบบระมัดระวัง ---
+        response_obj = kwargs.get("response_obj", None)
+        status_code = 0
+        res_headers = ""
+        req_headers = ""
 
-        # --- สร้าง cURL Command ที่ใช้งานได้จริง ---
+        if response_obj:
+            status_code = int(response_obj.status_code)
+            try:
+                # ✅ แปลง Dict ให้เป็น JSON String เพื่อให้ตรงกับ Backend Schema (str)
+                res_headers_dict = {str(k): str(v) for k, v in response_obj.headers.items()}
+                res_headers = json.dumps(res_headers_dict) 
+
+                if hasattr(response_obj, 'request') and hasattr(response_obj.request, 'headers'):
+                    req_headers_dict = {str(k): str(v) for k, v in response_obj.request.headers.items()}
+                    req_headers = json.dumps(req_headers_dict)
+            except Exception:
+                res_headers = "{}"
+                req_headers = "{}"
+
+        # สร้าง cURL Command (ส่งค่าที่เป็น string เข้าไป)
         curl_cmd = self._generate_curl(url, method, param, payload, content_type)
 
-        # --- จัดทำโครงสร้างข้อมูลตามที่ต้องการ ---
+        # --- แก้ไขจุดที่ 3: จัดโครงสร้างโดยไม่มี Object ใดๆ หลงเหลือ ---
         return {
             "target": {
                 "url": url,
@@ -51,26 +69,26 @@ class VulnerabilityBuilder:
                 "content_type": content_type
             },
             "vulnerability": {
-                "type": vuln_type,
+                "type": str(vuln_type),
                 "severity": self.severity_map.get(vuln_type, "LOW"),
-                "db_type": kwargs.get("db_type") if vuln_group == "SQLi" else None,
-                "xss_context": kwargs.get("context") if vuln_group == "XSS" else None
+                "db_type": str(kwargs.get("db_type", "Unknown")) if vuln_group == "SQLi" else None,
+                "xss_context": str(kwargs.get("context", "General")) if vuln_group == "XSS" else None
             },
             "evidence": {
                 "payload": payload,
-                "details": kwargs.get("details", ""),
-                "screenshot": screenshot, # Base64 String
-                "curl_command": curl_cmd
+                "details": str(kwargs.get("details", "")),
+                "screenshot": screenshot, # Base64 มักเป็น string อยู่แล้ว
+                "curl_command": str(curl_cmd)
             },
             "technical": {
                 "status_code": status_code,
                 "request_headers": req_headers,
                 "response_headers": res_headers,
-                "timestamp": int(time.time())
+                "timestamp": float(time.time())
             },
             "remediation": {
-                "description": kb.get("desc", ""),
-                "recommendation": kb.get("fix", "")
+                "description": str(kb.get("desc", "")),
+                "recommendation": str(kb.get("fix", ""))
             }
         }
 

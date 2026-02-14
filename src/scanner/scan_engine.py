@@ -3,7 +3,7 @@ import logging
 import requests
 from requests.exceptions import RequestException
 
-from src.scanner.crawler import Crawler, Target
+from src.scanner.crawler import Crawler
 from src.exploits.xss.scanner import XSSScanner
 from src.exploits.xss.dom_scanner import DOMScanner
 from src.exploits.sqli.scanner import SQLiScanner
@@ -134,10 +134,10 @@ class ScanOrchestrator:
     def _run_xss_scan(self, targets: list):
         findings = []
         for t in targets:
-            url = t.url
-            method = t.method
-            params = t.params
-            content_type = t.content_type
+            url = t["url"]
+            method = t["method"]
+            params = t["params"]
+            content_type = t["content_type"]
 
             self.logger.info(f"[ScanEngine] --- Analyzing: {url} ---")
 

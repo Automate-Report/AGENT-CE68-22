@@ -1,0 +1,48 @@
+1. Crawler ตัวนี้ทำอะไรได้บ้าง? (Capabilities)
+SPA & Dynamic Website Support: ใช้ Playwright (Headless Browser) ทำให้รองรับเว็บสมัยใหม่ที่ใช้ React, Vue หรือโหลดข้อมูลด้วย JavaScript ซึ่ง Crawler แบบเก่ามองไม่เห็น
+
+API & Hidden Endpoint Discovery: ไม่ได้หาแค่ลิงก์ (<a>) แต่ "แอบฟัง" (Intercept) การคุยกันระหว่าง Browser กับ Server ทำให้เจอเส้นทาง API (XHR/Fetch) ที่ซ่อนอยู่
+
+Method & Context Awareness: แยกแยะได้ว่าข้อมูลต้องส่งด้วย GET หรือ POST และส่งแบบ JSON หรือ Form ซึ่งจำเป็นมากในการเลือก Payload ของ XSS
+
+Smart Deduplication: ไม่เก็บ URL ซ้ำซ้อน และฉลาดพอที่จะรู้ว่าถ้า URL เดิมแต่มี Parameter ใหม่ (เช่น /profile?id=1 กับ /profile?name=test) ควรจะเก็บมาสแกนทั้งคู่
+
+2. เจาะลึกการทำงานของแต่ละ Function
+🟢 ส่วนควบคุมหลัก (Core Control)
+crawl(start_url, max_depth):
+เป็น "ผู้จัดการใหญ่" คอยคุม Queue (คิว) ของ URL ที่ต้องไปสำรวจ คอยตัดสินใจว่าจะหยุดเมื่อไหร่ (Depth) และจัดการเรื่องการเปิด-ปิด Browser
+
+_process_page(page, url):
+เป็นฟังก์ชันที่รวบรวมข้อมูล Parameter จากทุกแหล่งในหน้าเว็บนั้นๆ ทั้งจากตัว URL เองและจากฟอร์มที่ปรากฏบนหน้าจอ
+
+🔵 ส่วนการแกะรอย (Extraction & Interception)
+_intercept_network(request, base_domain):
+นี่คือส่วนที่สำคัญที่สุด มันทำงานแบบ Event-driven คือคอยดักฟัง Network Traffic ถ้า Browser มีการยิง API (fetch/xhr) มันจะรีบตะครุบข้อมูลนั้นมาสร้างเป็น Target ทันที แม้จะไม่มีลิงก์ให้กดบนหน้าเว็บก็ตาม
+
+_extract_forms_and_inputs(page):
+ทำหน้าที่เหมือนนักสืบ แกะดูทุก <form> บนหน้าเว็บ ดูว่ามัน Action ไปที่ไหน ใช้ Method อะไร และมีช่อง Input อะไรบ้าง เพื่อเตรียมไว้ให้ Scanner ลอง "ฉีด" Payload
+
+_discover_links(page, current_url, allowed_domain):
+ทำหน้าที่หา "ประตูไปต่อ" โดยกวาดหาแท็ก <a> ทั้งหมด แล้วคัดกรองเฉพาะลิงก์ที่อยู่ใน Domain เดียวกัน (In-scope) เพื่อไม่ให้ Crawler หลุดไปสแกนเว็บชาวบ้านอย่าง Facebook หรือ Google
+
+🟡 ส่วนจัดการข้อมูลและความเร็ว (Utility & Speed)
+_save_target(url, params, method, content_type):
+เป็นตัวสร้างอ็อบเจกต์ Target และส่งไปเช็คกับ Deduplicator ถ้าเป็นหน้าใหม่หรือโครงสร้างใหม่ มันจะถูกเก็บเข้าลิสต์ collected_targets เพื่อส่งต่อให้ Scanner
+
+_is_static_resource(url):
+เป็น "ตัวกรองความเร็ว" คอยสั่งให้ข้ามไฟล์พวกรูปภาพ (.jpg, .png) หรือไฟล์บีบอัด (.zip) เพราะไฟล์พวกนี้ไม่มีช่องโหว่ XSS ช่วยประหยัดเวลาและ Resource เครื่องได้มหาศาล
+
+สรุป Flow การทำงาน (The Workflow)
+Start: รับ URL เริ่มต้น ใส่ลงใน Queue
+
+Navigate: Browser เปิดหน้าเว็บ (รองรับ JS เต็มรูปแบบ)
+
+Sniff: ระหว่างโหลด _intercept_network จะคอยดักเก็บ API Call ที่ซ่อนอยู่
+
+Analyze: พอโหลดเสร็จ _process_page จะกวาดหา Form และ Parameter บนหน้าเว็บ
+
+Expand: _discover_links จะหาลิงก์ใหม่ๆ ในหน้านั้นแล้วเอาไปต่อคิว (Queue)
+
+Repeat: ทำซ้ำจนกว่าคิวจะว่างหรือถึงความลึกที่กำหนด
+
+Finish: คืนค่าลิสต์ของ Target ทั้งหมดที่พร้อมจะถูกเอาไปเจาะระบบต่อ

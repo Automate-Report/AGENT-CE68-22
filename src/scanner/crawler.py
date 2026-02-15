@@ -1,3 +1,5 @@
+import json
+
 from playwright.sync_api import sync_playwright, Page, Request
 
 from src.scanner.deduplicator import Deduplicator
@@ -74,17 +76,19 @@ class Crawler:
             page = context.new_page()
 
             # Event-Driven API Discovery
+            page.on("dialog", lambda d: d.accept())
             page.on("request", lambda req: self._intercept_network(req, base_domain))
 
             while queue:
                 current_url, current_depth = queue.pop(0) 
-                
+
+                clean_url_for_visited = current_url.split('?')[0]
                 if current_url in self.visited_urls or self._is_static_resource(current_url):
                     continue
                 if current_depth > max_depth:
                     continue
 
-                self.visited_urls.add(current_url)
+                self.visited_urls.add(clean_url_for_visited)
 
                 try:
 
@@ -93,14 +97,14 @@ class Crawler:
                     response = page.goto(current_url, wait_until="domcontentloaded", timeout=15000)
 
                     self._clear_popups(page)
+                    page.wait_for_timeout(1000)
 
                     # --- [NEW] Discovery Auth Logic ---
                     # ถ้ายังไม่ได้ Login และมี Credential มา ให้พยายามหาทาง Login ในทุกหน้าที่ผ่านไป
                     if not self.is_authenticated and self.credential:
                         if self.auth_handler.find_and_login(page, self.credential):
                             self.is_authenticated = True
-                            # เมื่อ Login สำเร็จ ให้เคลียร์คิวแล้วเริ่มสำรวจใหม่จากหน้าปัจจุบัน 
-                            # เพื่อให้เจอเมนูที่เพิ่งโผล่มาหลัง Login
+                            self._clear_popups(page)
                             queue.insert(0, (page.url, current_depth))
                             continue
 
@@ -121,7 +125,7 @@ class Crawler:
                         if current_depth < max_depth:
                             links = self._discover_links(page, current_url, base_domain)
                             for link in links:
-                                if link not in self.visited_urls:
+                                if link.split('?')[0] not in self.visited_urls:
                                     queue.append((link, current_depth + 1))
 
                 except Exception as e:
@@ -133,9 +137,8 @@ class Crawler:
     # --- Core Logic Functions ---
 
     def _save_target(self, url: str, params: dict, method: str = "GET", content_type: str = "form"):
-        base_url = url.split("?")[0].split("#")[0]
-        method = method.upper() # Fix: Ensure it's string
-        
+        base_url = url.split("?")[0]
+        method = method.upper() 
         sig = f"{method}|{base_url}|{sorted(params.keys())}"
 
         if not self.deduplicator.is_seen(sig):
@@ -153,39 +156,31 @@ class Crawler:
         if request.resource_type in ["fetch", "xhr"]:
             url = request.url
             if urlparse(url).netloc == base_domain:
-                method = request.method
-                c_type = request.headers.get("content-type", "form")
-                
-                # พยายามวิเคราะห์ Body เบื้องต้น (Pentest Hack)
                 params = {}
                 try:
-                    # ถ้าเป็น JSON ลองแกะหา Key
-                    if "json" in c_type.lower() and request.post_data:
-                        import json
+                    if request.post_data:
                         params = {k: "val" for k in json.loads(request.post_data).keys()}
-                except:
-                    params = {"api_payload": "fuzz_target"}
-
-                self._save_target(url, params, method, "json" if "json" in c_type else "form")
+                except: pass
+                
+                self._save_target(url, params, request.method, "json")
 
     def _process_page(self, page: Page, url: str) -> dict:
-        """รวมรวบ Parameter จากทุกแหล่งในหน้าเดียว"""
-        all_params = {}
-        all_params.update(self._extract_url_params(url))
-        all_params.update(self._extract_form_params(page))
-        # คุณสามารถเพิ่ม _extract_forms_and_inputs (POST) เข้ามาเสริมได้ที่นี่
-        if page.locator('input[type="password"]').is_visible():
-            if self.credential:
-                # กรณีมี User/Pass: ใช้ Heuristic Login ปกติ
-                self.auth_handler.login_with_heuristics(page, self.credential)
-            else:
-                # กรณีไม่มี User/Pass: ใช้ Aggressive Entry (SQLi/Default)
-                success = self.auth_handler.aggressive_entry(page)
-                if success:
-                    self.is_authenticated = True
-                    self.logger.info(f"[Crawler] Found a way in! Session captured.")
-
-        return all_params
+        params = {}
+        # ดึงจาก URL
+        if "?" in url:
+            query = urlparse(url).query
+            for pair in query.split("&"):
+                if "=" in pair:
+                    k, v = pair.split("=", 1)
+                    params[k] = v
+        
+        # ดึงจาก Form inputs
+        inputs = page.query_selector_all("input:not([type='hidden'])")
+        for i, el in enumerate(inputs):
+            name = el.get_attribute("name") or el.get_attribute("id") or f"input_{i}"
+            params[name] = "test"
+            
+        return params
 
     # --- Utility Functions (เหมือนเดิมที่คุณเขียนไว้) ---
 
@@ -217,15 +212,28 @@ class Crawler:
 
     def _discover_links(self, page: Page, current_url: str, allowed_domain: str) -> set:
         links_found = set()
+
         elements = page.query_selector_all("a[href]")
+
         for el in elements:
             try:
                 href = el.get_attribute("href")
-                if not href or href.startswith(("#", "javascript:", "mailto:")):
+                if not href or href.startswith(("javascript:", "mailto:")):
                     continue
                 full_url = urljoin(current_url, href)
-                clean_url = full_url.split("?")[0].split("#")[0]
-                if urlparse(clean_url).netloc == allowed_domain:
-                    links_found.add(clean_url)
+
+                if urlparse(full_url).netloc == allowed_domain:
+                    links_found.add(full_url)
+            except: continue
+
+        buttons = page.query_selector_all("button, [role='button'], .mat-menu-item")
+        for btn in buttons:
+            try:
+                # ถ้ามีข้อความน่าสนใจ เช่น Login, Register, Search ให้เก็บไว้ใน Log 
+                # หรือถ้าแอปใช้ Path ใน Attribute อื่นๆ
+                attr = btn.get_attribute("routerlink") or btn.get_attribute("href")
+                if attr:
+                    full_url = urljoin(current_url, attr)
+                    links_found.add(full_url)
             except: continue
         return links_found

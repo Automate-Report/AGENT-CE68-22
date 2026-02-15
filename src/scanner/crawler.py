@@ -1,10 +1,14 @@
 import json
-import time
 from playwright.sync_api import sync_playwright, Page, Request
+from urllib.parse import urlparse, urljoin
+
 from src.scanner.deduplicator import Deduplicator
 from src.scanner.auth_handler import AuthHandler
 from src.core.logger import setup_logger
-from urllib.parse import urlparse, urljoin
+
+from src.utils.browser_helper import dismiss_obstacles, trigger_hidden_elements, safe_wait
+from src.utils.url_helper import is_internal_url, is_static_resource, normalize_url
+
 
 class Crawler:
     def __init__(self, cred: dict, logger=None):
@@ -16,41 +20,6 @@ class Crawler:
         self.is_authenticated = False
         self.credential = cred
         self.blacklisted_domains = ["facebook.com", "youtube.com", "google.com", "linkedin.com", "github.com"]
-
-    # --- UI Helpers (เหมือนเดิมแต่ย้ายมาไว้ด้านบนเพื่อความเป็นระเบียบ) ---
-
-    def _clear_popups(self, page: Page):
-        common_selectors = [
-            "button:has-text('Accept')", "button:has-text('OK')", "button:has-text('Dismiss')",
-            "button:has-text('Close')", "button[aria-label*='Close']", ".close-button", ".modal-close"
-        ]
-        for selector in common_selectors:
-            try:
-                element = page.locator(selector).first
-                if element.is_visible(timeout=300):
-                    element.click()
-            except: continue
-
-        aggressive_script = """
-        () => {
-            const overlays = document.querySelectorAll('.cdk-overlay-container, .modal-backdrop, [class*="modal"], [class*="overlay"]');
-            overlays.forEach(el => el.remove());
-            document.body.style.overflow = 'auto';
-            document.documentElement.style.overflow = 'auto';
-        }
-        """
-        try: page.evaluate(aggressive_script)
-        except: pass
-
-    def _trigger_hidden_elements(self, page: Page):
-        trigger_selectors = [".mat-search_icon-search", "button[aria-label*='Search']", ".search-button"]
-        for s in trigger_selectors:
-            try:
-                el = page.locator(s).first
-                if el.is_visible(timeout=500):
-                    el.click()
-                    page.wait_for_timeout(500)
-            except: continue
 
     # --- Core Crawl Method ---
 
@@ -71,7 +40,7 @@ class Crawler:
 
             while queue:
                 current_url, current_depth = queue.pop(0) 
-                clean_url = current_url.split('?')[0].rstrip('/')
+                clean_url = normalize_url(current_url)
                 
                 if clean_url in self.visited_urls or self._is_static_resource(current_url):
                     continue
@@ -80,7 +49,7 @@ class Crawler:
                 self.visited_urls.add(clean_url)
 
                 try:
-                    # 1. แปะ Session ถ้าเคย Login แล้ว
+                    # [SESSION] แปะ Cookies/Storage ถ้าเคย Login แล้ว
                     if self.is_authenticated:
                         self.auth_handler.apply_session(context)
 
@@ -90,8 +59,9 @@ class Crawler:
                         self.logger.warning(f"[-] Out of scope: {page.url}")
                         continue
 
-                    self._clear_popups(page)
-                    self._trigger_hidden_elements(page)
+                    dismiss_obstacles(page)
+                    trigger_hidden_elements(page)
+                    safe_wait(page, 500)
 
                     # 2. SPA Heuristic Path Discovery
                     important_keywords = {
@@ -177,9 +147,6 @@ class Crawler:
                 "content_type": content_type, "params": params
             })
             self.logger.info(f"     [+] Discovered: {method} {base_url} ({len(params)} params)")
-
-    def _is_static_resource(self, url: str) -> bool:
-        return url.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.css', '.woff', '.pdf', '.svg', '.js'))
 
     def _discover_links(self, page: Page, current_url: str, allowed_domain: str) -> set:
         links_found = set()

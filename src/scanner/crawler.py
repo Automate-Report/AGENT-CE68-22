@@ -1,7 +1,6 @@
 import json
-
+import time
 from playwright.sync_api import sync_playwright, Page, Request
-
 from src.scanner.deduplicator import Deduplicator
 from src.scanner.auth_handler import AuthHandler
 from src.core.logger import setup_logger
@@ -16,61 +15,50 @@ class Crawler:
         self.auth_handler = AuthHandler()
         self.is_authenticated = False
         self.credential = cred
+        self.blacklisted_domains = ["facebook.com", "youtube.com", "google.com", "linkedin.com", "github.com"]
+
+    # --- UI Helpers (เหมือนเดิมแต่ย้ายมาไว้ด้านบนเพื่อความเป็นระเบียบ) ---
 
     def _clear_popups(self, page: Page):
-        """ฟังก์ชันในการจัดการ pop-up, modals และ cookie banners"""
-        # 1. รายการ Selector ยอดนิยมสำหรับปุ่มปิด หรือยอมรับ
         common_selectors = [
-            "button:has-text('Accept')", "button:has-text('ยอมรับ')", 
-            "button:has-text('OK')", "button:has-text('ตกลง')",
-            "button:has-text('Close')", "button:has-text('ปิด')",
-            "button[aria-label*='Close']", ".modal-close", ".close-button",
-            "[class*='cookie'] button", "[id*='cookie'] button"
+            "button:has-text('Accept')", "button:has-text('OK')", "button:has-text('Dismiss')",
+            "button:has-text('Close')", "button[aria-label*='Close']", ".close-button", ".modal-close"
         ]
-
-        # 2. ลองคลิกปุ่มที่เจอก่อน (Soft Clear)
         for selector in common_selectors:
             try:
                 element = page.locator(selector).first
-                if element.is_visible(timeout=300): # ใช้ Timeout ต่ำมากเพื่อความเร็ว
+                if element.is_visible(timeout=300):
                     element.click()
-                    self.logger.debug(f"[Crawler] Clicked popup/cookie button: {selector}")
-            except:
-                continue
+            except: continue
 
-        # 3. Aggressive Clear: ใช้ JavaScript ลบ Overlay ที่บังหน้าจอทิ้ง (Hard Clear)
-        # ป้องกันกรณี Modal ไม่มีปุ่มปิด หรือปุ่มกดยาก
         aggressive_script = """
         () => {
-            const overlaySelectors = [
-                '[class*="modal"]', '[class*="popup"]', '[class*="overlay"]', 
-                '[id*="modal"]', '[id*="popup"]', '.fade.show'
-            ];
-            overlaySelectors.forEach(s => {
-                document.querySelectorAll(s).forEach(el => {
-                    // ลบทิ้งเฉพาะตัวที่บังหน้าจอ (มี z-index สูง)
-                    const style = window.getComputedStyle(el);
-                    if (parseInt(style.zIndex) > 0 || style.position === 'fixed') {
-                        el.remove();
-                    }
-                });
-            });
-            // ปลดล็อค Scroll ของหน้าเว็บเผื่อโดนล็อคไว้ขณะ Modal เปิด
+            const overlays = document.querySelectorAll('.cdk-overlay-container, .modal-backdrop, [class*="modal"], [class*="overlay"]');
+            overlays.forEach(el => el.remove());
             document.body.style.overflow = 'auto';
             document.documentElement.style.overflow = 'auto';
         }
         """
-        try:
-            page.evaluate(aggressive_script)
-        except Exception as e:
-            self.logger.debug(f"[-] Aggressive clear failed: {e}")
+        try: page.evaluate(aggressive_script)
+        except: pass
+
+    def _trigger_hidden_elements(self, page: Page):
+        trigger_selectors = [".mat-search_icon-search", "button[aria-label*='Search']", ".search-button"]
+        for s in trigger_selectors:
+            try:
+                el = page.locator(s).first
+                if el.is_visible(timeout=500):
+                    el.click()
+                    page.wait_for_timeout(500)
+            except: continue
+
+    # --- Core Crawl Method ---
 
     def crawl(self, start_url: str, max_depth: int = 2):
-        self.logger.info(f"[Crawler] Starting Crawl on: {start_url} (Depth: {max_depth})")
+        self.logger.info(f"[Crawler] Starting Modern Crawl on: {start_url}")
         parsed_start = urlparse(start_url)
         base_domain = parsed_start.netloc 
         base_scheme = parsed_start.scheme
-
         queue = [(start_url, 0)]
         
         with sync_playwright() as p:
@@ -78,81 +66,63 @@ class Crawler:
             context = browser.new_context(ignore_https_errors=True)
             page = context.new_page()
 
-            # Event-Driven API Discovery
             page.on("dialog", lambda d: d.accept())
             page.on("request", lambda req: self._intercept_network(req, base_domain))
 
             while queue:
                 current_url, current_depth = queue.pop(0) 
-
-                clean_url_for_visited = current_url.split('?')[0]
-                if current_url in self.visited_urls or self._is_static_resource(current_url):
+                clean_url = current_url.split('?')[0].rstrip('/')
+                
+                if clean_url in self.visited_urls or self._is_static_resource(current_url):
                     continue
-                if current_depth > max_depth:
-                    continue
+                if current_depth > max_depth: continue
 
-                self.visited_urls.add(clean_url_for_visited)
+                self.visited_urls.add(clean_url)
 
                 try:
+                    # 1. แปะ Session ถ้าเคย Login แล้ว
+                    if self.is_authenticated:
+                        self.auth_handler.apply_session(context)
 
-                    # โหลดหน้าเว็บและเก็บข้อมูล Forms/URL Params
-                    # Note: _process_page ถูกเรียกใช้งานภายในนี้
-                    response = page.goto(current_url, wait_until="domcontentloaded", timeout=15000)
+                    response = page.goto(current_url, wait_until="networkidle", timeout=15000)
+
+                    if urlparse(page.url).netloc != base_domain:
+                        self.logger.warning(f"[-] Out of scope: {page.url}")
+                        continue
 
                     self._clear_popups(page)
-                    page.wait_for_timeout(1000)
+                    self._trigger_hidden_elements(page)
 
+                    # 2. SPA Heuristic Path Discovery
                     important_keywords = {
-                        "Administration": "/#/administration",
-                        "Score Board": "/#/score-board",
-                        "Login": "/#/login",
-                        "Basket": "/#/basket",
-                        "Contact Us": "/#/contact-us",
-                        "About Us": "/#/about-us"
+                        "Administration": "/#/administration", "Score Board": "/#/score-board",
+                        "Login": "/#/login", "Basket": "/#/basket"
                     }
-
-                    for kw, predicted_path in important_keywords.items():
-                        # ตรวจสอบว่ามี Text นี้ในหน้าเว็บ และมองเห็นได้จริงหรือไม่
+                    for kw, path in important_keywords.items():
                         try:
-                            element = page.get_by_text(kw, exact=False).first
-                            if element.is_visible(timeout=500):
-                                # สร้าง URL เต็มๆ โดยอิงจาก base_domain ของเราเท่านั้น
-                                heuristic_url = f"{base_scheme}://{base_domain}{predicted_path}"
-                                
-                                if heuristic_url not in self.visited_urls:
-                                    self.logger.info(f"     [*] Heuristic Found: {kw} -> {heuristic_url}")
-                                    queue.append((heuristic_url, current_depth + 1))
-                        except:
-                            continue
+                            if page.get_by_text(kw).first.is_visible(timeout=300):
+                                h_url = f"{base_scheme}://{base_domain}{path}"
+                                if h_url.split('?')[0].rstrip('/') not in self.visited_urls:
+                                    queue.append((h_url, current_depth + 1))
+                        except: continue
 
-                    # --- [NEW] Discovery Auth Logic ---
-                    # ถ้ายังไม่ได้ Login และมี Credential มา ให้พยายามหาทาง Login ในทุกหน้าที่ผ่านไป
+                    # 3. Auth Logic (เชื่อมกับ AuthHandler persistence)
                     if not self.is_authenticated and self.credential:
                         if self.auth_handler.find_and_login(page, self.credential):
                             self.is_authenticated = True
-                            self._clear_popups(page)
+                            # เมื่อ Login สำเร็จ ให้เริ่มสำรวจหน้าใหม่ด้วย Session ใหม่
                             queue.insert(0, (page.url, current_depth))
                             continue
 
-                    # --- [NEW] Check Session Timeout ---
-                    # ถ้าเคย Login แล้ว แต่อยู่ดีๆ หน้า Login โผล่มา ให้ Login ซ้ำ
-                    if self.is_authenticated and page.locator('input[type="password"]').is_visible():
-                        self.auth_handler.login_with_heuristics(page, self.credential)
-                    
+                    # 4. Data Extraction
                     if response and response.status < 400:
-                        # ดึงข้อมูลจาก Page Content
                         found_params = self._process_page(page, current_url)
-                        
-                        # บันทึก Target จากสิ่งที่เจอในหน้า HTML
                         if found_params:
                             self._save_target(current_url, found_params, "GET")
 
-                        # หา Link เพื่อไปหน้าถัดไป
                         if current_depth < max_depth:
-                            links = self._discover_links(page, current_url, base_domain)
-                            for link in links:
-                                if link.split('?')[0] not in self.visited_urls:
-                                    queue.append((link, current_depth + 1))
+                            for link in self._discover_links(page, current_url, base_domain):
+                                queue.append((link, current_depth + 1))
 
                 except Exception as e:
                     self.logger.debug(f"[-] Skip {current_url}: {e}")
@@ -160,120 +130,73 @@ class Crawler:
             browser.close()
         return self.collected_targets
 
-    # --- Core Logic Functions ---
+    def _intercept_network(self, request: Request, base_domain: str):
+        # กรองเอาเฉพาะ Fetch/XHR และข้ามพวก socket.io เพื่อลดขยะใน Log
+        if request.resource_type in ["fetch", "xhr"] and "socket.io" not in request.url:
+            if urlparse(request.url).netloc == base_domain:
+                params = {}
+                try:
+                    if request.post_data:
+                        data = json.loads(request.post_data)
+                        if isinstance(data, dict):
+                            params = {k: "val" for k in data.keys()}
+                except: pass
+                self._save_target(request.url, params, request.method, "json")
+
+    def _process_page(self, page: Page, url: str) -> dict:
+        params = {}
+        # URL Params
+        if "?" in url:
+            for pair in urlparse(url).query.split("&"):
+                if "=" in pair:
+                    k, v = pair.split("=", 1)
+                    params[k] = v
+        
+        # Smart Element Discovery
+        selectors = "input, textarea, select, [role='textbox'], .mdc-text-field__input"
+        for i, el in enumerate(page.query_selector_all(selectors)):
+            try:
+                p_name = (el.get_attribute("name") or el.get_attribute("id") or 
+                          el.get_attribute("placeholder") or el.get_attribute("aria-label") or f"p_{i}")
+                
+                if "mat-input-1" in p_name: params["q"] = "fuzz"
+                else: params[p_name] = "test"
+            except: continue
+        return params
 
     def _save_target(self, url: str, params: dict, method: str = "GET", content_type: str = "form"):
-        base_url = url.split("?")[0]
+        # ตัด fragment (#) ออกตอนทำ Signature เพื่อป้องกันการเก็บซ้ำในบาง API
+        base_url = url.split("?")[0].split("#")[0]
         method = method.upper() 
         sig = f"{method}|{base_url}|{sorted(params.keys())}"
 
         if not self.deduplicator.is_seen(sig):
             self.deduplicator.add(sig)
-            target = {
-                "url": base_url,
-                "method": method,
-                "content_type": content_type,
-                "params": params
-            }
-            self.collected_targets.append(target)
-            self.logger.info(f"     [+] Target Discovered: {method} {base_url} ({len(params)} params)")
-
-    def _intercept_network(self, request: Request, base_domain: str):
-        if request.resource_type in ["fetch", "xhr"]:
-            url = request.url
-            parsed_url = urlparse(url)
-
-            if urlparse(url).netloc == base_domain:
-                params = {}
-                try:
-                    if request.post_data:
-                        params = {k: "val" for k in json.loads(request.post_data).keys()}
-                except: pass
-                
-                self._save_target(url, params, request.method, "json")
-            else:
-                pass
-
-    def _process_page(self, page: Page, url: str) -> dict:
-        params = {}
-        # ดึงจาก URL
-        if "?" in url:
-            query = urlparse(url).query
-            for pair in query.split("&"):
-                if "=" in pair:
-                    k, v = pair.split("=", 1)
-                    params[k] = v
-        
-        # ดึงจาก Form inputs
-        inputs = page.query_selector_all("input:not([type='hidden'])")
-        for i, el in enumerate(inputs):
-            name = el.get_attribute("name") or el.get_attribute("id") or f"input_{i}"
-            params[name] = "test"
-            
-        return params
-
-    # --- Utility Functions (เหมือนเดิมที่คุณเขียนไว้) ---
+            self.collected_targets.append({
+                "url": base_url, "method": method, 
+                "content_type": content_type, "params": params
+            })
+            self.logger.info(f"     [+] Discovered: {method} {base_url} ({len(params)} params)")
 
     def _is_static_resource(self, url: str) -> bool:
-        extensions = ('.jpg', '.jpeg', '.png', '.gif', '.css', '.woff', '.woff2', '.pdf', '.zip', '.svg')
-        return url.lower().endswith(extensions)
-
-    def _extract_url_params(self, current_url: str) -> dict:
-        params = {}
-        if "?" in current_url:
-            try:
-                query = urlparse(current_url).query
-                for pair in query.split("&"):
-                    if "=" in pair:
-                        key, val = pair.split("=", 1)
-                        params[key] = val
-            except: pass
-        return params
-
-    def _extract_form_params(self, page: Page) -> dict:
-        params = {}
-        elements = page.query_selector_all("input:not([type='hidden']), textarea, select")
-        for i, el in enumerate(elements):
-            try:
-                p_name = el.get_attribute("name") or el.get_attribute("id") or f"anonymous_input_{i+1}"
-                params[p_name] = "test_value"
-            except: continue
-        return params
+        return url.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.css', '.woff', '.pdf', '.svg', '.js'))
 
     def _discover_links(self, page: Page, current_url: str, allowed_domain: str) -> set:
         links_found = set()
-
-        elements = page.query_selector_all("a[href]")
-        #blacklist domain
-        blacklisted_domains = ["facebook.com", "youtube.com", "google.com"]
-
-        for el in elements:
+        for a in page.query_selector_all("a[href]"):
             try:
-                href = el.get_attribute("href")
-                if not href or href.startswith(("javascript:", "mailto:")):
-                    continue
-
+                href = a.get_attribute("href")
+                if not href or href.strip().startswith(("javascript:", "mailto:", "tel:", "#")): continue
                 full_url = urljoin(current_url, href)
-                parsed_url = urlparse(full_url)
-
-                is_internal = parsed_url.netloc == allowed_domain
-                is_blacklisted = any(social in parsed_url.netloc for social in blacklisted_domains)
-
-                if is_internal and not is_blacklisted:
+                if urlparse(full_url).netloc == allowed_domain and not any(d in full_url for d in self.blacklisted_domains):
                     links_found.add(full_url)
-                else:
-                    self.logger.debug(f"[-] Blocked Out-of-Scope URL: {full_url}")
-                    pass
             except: continue
 
-        buttons = page.query_selector_all("button, [role='button'], .mat-menu-item")
-        for btn in buttons:
+        for btn in page.query_selector_all("[routerlink], [href]:not(a)"):
             try:
-                # ถ้ามีข้อความน่าสนใจ เช่น Login, Register, Search ให้เก็บไว้ใน Log 
-                # หรือถ้าแอปใช้ Path ใน Attribute อื่นๆ
-                attr = btn.get_attribute("routerlink") or btn.get_attribute("href")
-                if attr:
-                    full_url = urljoin(current_url, attr)
+                path = btn.get_attribute("routerlink") or btn.get_attribute("href")
+                full_url = urljoin(current_url, path)
+                if urlparse(full_url).netloc == allowed_domain:
                     links_found.add(full_url)
             except: continue
         return links_found

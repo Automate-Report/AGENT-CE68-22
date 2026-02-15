@@ -15,12 +15,59 @@ class Crawler:
         self.is_authenticated = False
         self.credential = cred
 
+    def _clear_popups(self, page: Page):
+        """ฟังก์ชันในการจัดการ pop-up, modals และ cookie banners"""
+        # 1. รายการ Selector ยอดนิยมสำหรับปุ่มปิด หรือยอมรับ
+        common_selectors = [
+            "button:has-text('Accept')", "button:has-text('ยอมรับ')", 
+            "button:has-text('OK')", "button:has-text('ตกลง')",
+            "button:has-text('Close')", "button:has-text('ปิด')",
+            "button[aria-label*='Close']", ".modal-close", ".close-button",
+            "[class*='cookie'] button", "[id*='cookie'] button"
+        ]
+
+        # 2. ลองคลิกปุ่มที่เจอก่อน (Soft Clear)
+        for selector in common_selectors:
+            try:
+                element = page.locator(selector).first
+                if element.is_visible(timeout=300): # ใช้ Timeout ต่ำมากเพื่อความเร็ว
+                    element.click()
+                    self.logger.debug(f"[Crawler] Clicked popup/cookie button: {selector}")
+            except:
+                continue
+
+        # 3. Aggressive Clear: ใช้ JavaScript ลบ Overlay ที่บังหน้าจอทิ้ง (Hard Clear)
+        # ป้องกันกรณี Modal ไม่มีปุ่มปิด หรือปุ่มกดยาก
+        aggressive_script = """
+        () => {
+            const overlaySelectors = [
+                '[class*="modal"]', '[class*="popup"]', '[class*="overlay"]', 
+                '[id*="modal"]', '[id*="popup"]', '.fade.show'
+            ];
+            overlaySelectors.forEach(s => {
+                document.querySelectorAll(s).forEach(el => {
+                    // ลบทิ้งเฉพาะตัวที่บังหน้าจอ (มี z-index สูง)
+                    const style = window.getComputedStyle(el);
+                    if (parseInt(style.zIndex) > 0 || style.position === 'fixed') {
+                        el.remove();
+                    }
+                });
+            });
+            // ปลดล็อค Scroll ของหน้าเว็บเผื่อโดนล็อคไว้ขณะ Modal เปิด
+            document.body.style.overflow = 'auto';
+            document.documentElement.style.overflow = 'auto';
+        }
+        """
+        try:
+            page.evaluate(aggressive_script)
+        except Exception as e:
+            self.logger.debug(f"[-] Aggressive clear failed: {e}")
+
     def crawl(self, start_url: str, max_depth: int = 2):
         self.logger.info(f"[Crawler] Starting Crawl on: {start_url} (Depth: {max_depth})")
         base_domain = urlparse(start_url).netloc
         queue = [(start_url, 0)]
         
-
         with sync_playwright() as p:
             browser = p.chromium.launch(channel="chrome", headless=True)
             context = browser.new_context(ignore_https_errors=True)
@@ -44,6 +91,8 @@ class Crawler:
                     # โหลดหน้าเว็บและเก็บข้อมูล Forms/URL Params
                     # Note: _process_page ถูกเรียกใช้งานภายในนี้
                     response = page.goto(current_url, wait_until="domcontentloaded", timeout=15000)
+
+                    self._clear_popups(page)
 
                     # --- [NEW] Discovery Auth Logic ---
                     # ถ้ายังไม่ได้ Login และมี Credential มา ให้พยายามหาทาง Login ในทุกหน้าที่ผ่านไป

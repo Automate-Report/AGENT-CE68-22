@@ -67,11 +67,14 @@ class Crawler:
 
     def crawl(self, start_url: str, max_depth: int = 2):
         self.logger.info(f"[Crawler] Starting Crawl on: {start_url} (Depth: {max_depth})")
-        base_domain = urlparse(start_url).netloc
+        parsed_start = urlparse(start_url)
+        base_domain = parsed_start.netloc 
+        base_scheme = parsed_start.scheme
+
         queue = [(start_url, 0)]
         
         with sync_playwright() as p:
-            browser = p.chromium.launch(channel="chrome", headless=True)
+            browser = p.chromium.launch(channel="chrome", headless=False)
             context = browser.new_context(ignore_https_errors=True)
             page = context.new_page()
 
@@ -98,6 +101,29 @@ class Crawler:
 
                     self._clear_popups(page)
                     page.wait_for_timeout(1000)
+
+                    important_keywords = {
+                        "Administration": "/#/administration",
+                        "Score Board": "/#/score-board",
+                        "Login": "/#/login",
+                        "Basket": "/#/basket",
+                        "Contact Us": "/#/contact-us",
+                        "About Us": "/#/about-us"
+                    }
+
+                    for kw, predicted_path in important_keywords.items():
+                        # ตรวจสอบว่ามี Text นี้ในหน้าเว็บ และมองเห็นได้จริงหรือไม่
+                        try:
+                            element = page.get_by_text(kw, exact=False).first
+                            if element.is_visible(timeout=500):
+                                # สร้าง URL เต็มๆ โดยอิงจาก base_domain ของเราเท่านั้น
+                                heuristic_url = f"{base_scheme}://{base_domain}{predicted_path}"
+                                
+                                if heuristic_url not in self.visited_urls:
+                                    self.logger.info(f"     [*] Heuristic Found: {kw} -> {heuristic_url}")
+                                    queue.append((heuristic_url, current_depth + 1))
+                        except:
+                            continue
 
                     # --- [NEW] Discovery Auth Logic ---
                     # ถ้ายังไม่ได้ Login และมี Credential มา ให้พยายามหาทาง Login ในทุกหน้าที่ผ่านไป
@@ -155,6 +181,8 @@ class Crawler:
     def _intercept_network(self, request: Request, base_domain: str):
         if request.resource_type in ["fetch", "xhr"]:
             url = request.url
+            parsed_url = urlparse(url)
+
             if urlparse(url).netloc == base_domain:
                 params = {}
                 try:
@@ -163,6 +191,8 @@ class Crawler:
                 except: pass
                 
                 self._save_target(url, params, request.method, "json")
+            else:
+                pass
 
     def _process_page(self, page: Page, url: str) -> dict:
         params = {}
@@ -214,16 +244,26 @@ class Crawler:
         links_found = set()
 
         elements = page.query_selector_all("a[href]")
+        #blacklist domain
+        blacklisted_domains = ["facebook.com", "youtube.com", "google.com"]
 
         for el in elements:
             try:
                 href = el.get_attribute("href")
                 if not href or href.startswith(("javascript:", "mailto:")):
                     continue
-                full_url = urljoin(current_url, href)
 
-                if urlparse(full_url).netloc == allowed_domain:
+                full_url = urljoin(current_url, href)
+                parsed_url = urlparse(full_url)
+
+                is_internal = parsed_url.netloc == allowed_domain
+                is_blacklisted = any(social in parsed_url.netloc for social in blacklisted_domains)
+
+                if is_internal and not is_blacklisted:
                     links_found.add(full_url)
+                else:
+                    self.logger.debug(f"[-] Blocked Out-of-Scope URL: {full_url}")
+                    pass
             except: continue
 
         buttons = page.query_selector_all("button, [role='button'], .mat-menu-item")

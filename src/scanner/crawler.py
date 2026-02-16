@@ -7,7 +7,7 @@ from src.scanner.auth_handler import AuthHandler
 from src.core.logger import setup_logger
 
 from src.utils.browser_helper import dismiss_obstacles, trigger_hidden_elements, safe_wait
-from src.utils.url_helper import is_internal_url, is_static_resource, normalize_url
+from src.utils.url_helper import is_static_resource, normalize_url
 
 
 class Crawler:
@@ -23,7 +23,7 @@ class Crawler:
 
     # --- Core Crawl Method ---
 
-    def crawl(self, start_url: str, max_depth: int = 2):
+    def crawl(self, start_url: str, max_depth: int = 3):
         self.logger.info(f"[Crawler] Starting Modern Crawl on: {start_url}")
         parsed_start = urlparse(start_url)
         base_domain = parsed_start.netloc 
@@ -42,7 +42,7 @@ class Crawler:
                 current_url, current_depth = queue.pop(0) 
                 clean_url = normalize_url(current_url)
                 
-                if clean_url in self.visited_urls or self._is_static_resource(current_url):
+                if clean_url in self.visited_urls or is_static_resource(current_url):
                     continue
                 if current_depth > max_depth: continue
 

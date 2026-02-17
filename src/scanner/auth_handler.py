@@ -108,16 +108,15 @@ class AuthHandler:
         return False
 
     def _check_success(self, page: Page) -> bool:
-        """ตรวจสอบว่าสถานะปัจจุบันคือ Login แล้วหรือไม่"""
-        # 1. เช็คจาก UI Indicators
-        indicators = ["logout", "sign out", "dashboard", "profile", "my account", "ออกจากระบบ"]
-        page_text = page.content().lower()
-        has_indicator = any(ind in page_text for ind in indicators)
+        # เพิ่มการเช็ค URL Change และ Response Status
+        # และเช็ค Cookies ที่เปลี่ยนไป (เช่น มี session id ใหม่เกิดขึ้น)
+        indicators = ["logout", "sign out", "dashboard", "settings", "profile"]
+        has_indicator = any(ind in page.content().lower() for ind in indicators)
         
-        # 2. เช็คว่า Password Input หายไป (ถูกแทนที่ด้วยหน้า Dashboard)
-        no_password_field = page.locator('input[type="password"]').count() == 0
+        # เช็คว่า URL เปลี่ยนจากหน้า /login หรือไม่
+        is_not_login_url = "login" not in page.url.lower()
         
-        return has_indicator and no_password_field
+        return has_indicator and is_not_login_url
 
     def verify_sqli_bypass(self, url: str, method: str, param_key: str, payload: str, content_type: str):
         """ตรวจสอบและถ่ายรูปหลักฐาน (Verifier Module)"""

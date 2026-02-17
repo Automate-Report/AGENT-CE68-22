@@ -163,37 +163,44 @@ class Crawler:
         except: pass
 
     def _process_page(self, page: Page, url: str) -> dict:
+        # 1. รอให้ SPA (Angular/React) Render ให้เสร็จ
+        try:
+            page.wait_for_selector("input, button, form", timeout=3000)
+        except: pass
+
+        parsed_url = urlparse(url)
         params = {}
-        # URL Params
-        if "?" in url:
-            query = urlparse(url).query
-            params.update({k: v[0] for k, v in parse_qs(query).items()})
         
-       # 2. ปรับปรุง Smart Discovery (ขจัด Logic Hard-coded ออก)
-        selectors = "input:not([type='submit']), textarea, select, [role='textbox'], [contenteditable='true']"
+        # 2. คัดกรอง Input เฉพาะที่มองเห็นและไม่ได้ซ่อนไว้
+        selectors = "input:not([type='submit']):visible, textarea:visible, select:visible"
         elements = page.query_selector_all(selectors)
         
         for i, el in enumerate(elements):
             try:
-                # ลำดับความสำคัญ: name > id > placeholder > aria-label > label text
                 name = (el.get_attribute("name") or 
                         el.get_attribute("id") or 
                         el.get_attribute("placeholder") or 
-                        el.get_attribute("aria-label"))
+                        f"input_{i}")
                 
-                # [NEW] ถ้ายังไม่มีชื่อ ลองหา Label ที่ครอบอยู่หรืออยู่ใกล้ๆ
-                if not name:
-                    label_el = page.query_selector(f"label[for='{el.get_attribute('id')}']")
-                    if label_el: name = label_el.inner_text().strip()
-                
-                final_name = name if name else f"param_{i}"
-                
-                # เลิกใช้ 'fuzz' หรือ 'test' แบบเจาะจง ให้ใส่ค่าว่างหรือค่าเริ่มต้นไว้
-                # เพื่อให้ Scanner เป็นคนตัดสินใจว่าจะฉีด Payload อะไรลงไป
-                params[final_name] = "" 
-                
+                # 3. วิเคราะห์ Context (พารามิเตอร์นี้อยู่ที่ไหนใน DOM?)
+                # ถ้าอยู่ในหน้าหลัก (Nav) หรือ Footer มักจะเป็น Global Param
+                is_global = el.evaluate("""node => {
+                    const nav = node.closest('nav, header, footer');
+                    return nav !== null;
+                }""")
+
+                params[name] = {
+                    "value": "",
+                    "is_global": is_global,
+                    "selector": f"#{el.get_attribute('id')}" if el.get_attribute("id") else name
+                }
             except: continue
-            
+
+        # 4. ตรวจสอบความซ้ำซ้อนก่อนส่งไปสแกน
+        if params and self.deduplicator.is_seen("GET", parsed_url.path, params):
+            self.logger.debug(f"[Crawler] Skipping duplicate structure at {parsed_url.path}")
+            return {}
+
         return params
 
     def _save_target(self, url: str, params: dict, method: str = "GET", content_type: str = "form"):
@@ -205,8 +212,11 @@ class Crawler:
         if not self.deduplicator.is_seen(sig):
             self.deduplicator.add(sig)
             self.collected_targets.append({
-                "url": base_url, "method": method, 
-                "content_type": content_type, "params": params
+                "url": base_url, 
+                "method": method, 
+                "content_type": content_type, 
+                "params": params,
+                "context": "html_body"
             })
             self.logger.info(f"     [+] Discovered: {method} {base_url} {params}")
 

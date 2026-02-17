@@ -204,21 +204,39 @@ class Crawler:
         return params
 
     def _save_target(self, url: str, params: dict, method: str = "GET", content_type: str = "form"):
-        # ตัด fragment (#) ออกตอนทำ Signature เพื่อป้องกันการเก็บซ้ำในบาง API
-        base_url = url.split("?")[0].split("#")[0]
-        method = method.upper() 
-        sig = f"{method}|{base_url}|{sorted(params.keys())}"
+        """
+        บันทึกเป้าหมายที่พบ โดยใช้ Deduplicator ตรวจสอบความซ้ำซ้อนของโครงสร้างพารามิเตอร์
+        """
+        # 1. เตรียมข้อมูลพื้นฐาน
+        parsed_url = urlparse(url)
+        # ตัด Query String และ Fragment ออกเพื่อหา Base Path
+        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+        url_path = parsed_url.path
+        method = method.upper()
 
-        if not self.deduplicator.is_seen(sig):
-            self.deduplicator.add(sig)
-            self.collected_targets.append({
+        # 2. ตรวจสอบความซ้ำซ้อนผ่าน Deduplicator 
+        # (ใช้ is_seen ที่เราแก้ใหม่ ซึ่งรับค่า method, path, และ params)
+        if not self.deduplicator.is_seen(method, url_path, params):
+            
+            # 3. วิเคราะห์ Context เพิ่มเติม (Optional: เพื่อให้ Scanner ทำงานแม่นขึ้น)
+            # เราสามารถแยกได้ว่าพารามิเตอร์ไหนเป็น Global จากข้อมูลที่เก็บมาใน _process_page
+            
+            target_data = {
                 "url": base_url, 
                 "method": method, 
                 "content_type": content_type, 
                 "params": params,
-                "context": "html_body"
-            })
-            self.logger.info(f"     [+] Discovered: {method} {base_url} {params}")
+                "context": "html_body" # ค่าเริ่มต้น หรือจะปรับตามที่ process_page ส่งมา
+            }
+
+            self.collected_targets.append(target_data)
+            
+            # เก็บ Log เฉพาะตัวที่เพิ่มใหม่
+            param_names = list(params.keys())
+            self.logger.info(f"     [+] Discovered New Structure: {method} {url_path} {param_names}")
+        else:
+            # กรณีที่ซ้ำ (เช่น mat-input-1 ที่เจอในหน้าอื่นไปแล้ว)
+            self.logger.debug(f"     [-] Skipping Duplicate Structure: {method} {url_path}")
 
     def _discover_links(self, page: Page, current_url: str, allowed_domain: str) -> set:
         links_found = set()

@@ -1,6 +1,6 @@
 import json
 from playwright.sync_api import sync_playwright, Page, Request
-from urllib.parse import urlparse, urljoin,  parse_qs
+from urllib.parse import urlparse, urljoin,  parse_qs, unquote
 
 from src.scanner.deduplicator import Deduplicator
 from src.scanner.auth_handler import AuthHandler
@@ -101,22 +101,46 @@ class Crawler:
         return self.collected_targets
 
     def _intercept_network(self, request: Request, base_domain: str):
-        # กรองเอาเฉพาะ Fetch/XHR และข้ามพวก socket.io เพื่อลดขยะใน Log
-        if request.resource_type in ["fetch", "xhr"] and "socket.io" not in request.url:
-            if urlparse(request.url).netloc == base_domain:
-                params = {}
-                content_type = "form"
+        # 1. กรองเฉพาะสิ่งที่น่าสนใจ และข้ามพวกไฟล์ขยะ/Socket
+        ignored_exts = [".js", ".css", ".png", ".jpg", ".svg", ".woff"]
+        if request.resource_type not in ["fetch", "xhr"] or any(request.url.split('?')[0].endswith(ext) for ext in ignored_exts):
+            return
 
-                try:
-                    post_data = request.post_data
-                    if post_data:
-                        if request.headers.get("content-type") == "application/json":
-                            params = json.loads(post_data)
-                            content_type = "json"
-                        else:
-                            params = {k: v[0] for k, v in parse_qs(post_data).items()}
-                except: pass
-                self._save_target(request.url, params, request.method, content_type)
+        if urlparse(request.url).netloc == base_domain and "socket.io" not in request.url:
+            params = {}
+            content_type = "form"
+            
+            try:
+                # --- ดักจับพารามิเตอร์จาก URL (Query String) ---
+                query_params = parse_qs(urlparse(request.url).query)
+                if query_params:
+                    params.update({k: v[0] for k, v in query_params.items()})
+
+                # --- ดักจับพารามิเตอร์จาก Body ---
+                post_data = request.post_data
+                if post_data:
+                    header_ct = request.headers.get("content-type", "").lower()
+                    
+                    if "application/json" in header_ct:
+                        params.update(json.loads(post_data))
+                        content_type = "json"
+                    else:
+                        body_params = {k: v[0] for k, v in parse_qs(post_data).items()}
+                        params.update(body_params)
+
+            except Exception as e:
+                self.logger.debug(f"[-] Intercept parse error: {e}")
+
+            # 2. บันทึก Target เฉพาะที่มีพารามิเตอร์ (เพื่อลด Noise ในการสแกน)
+            if params:
+                # เพิ่มการเก็บ Headers ที่จำเป็น (เช่น Token) ถ้าคุณทำระบบ Persistence ไว้
+                self._save_target(
+                    url=request.url.split('?')[0], # เก็บเฉพาะ Base URL
+                    params=params, 
+                    method=request.method, 
+                    content_type=content_type
+                )
+                self.logger.info(f"    [Intercepted API] {request.method} {request.url[:50]}... ({len(params)} params)")
 
     def _smart_form_filler(self, page: Page):
         """เติมข้อมูลในฟอร์มอัตโนมัติ เพื่อกระตุ้นให้เกิด Network Traffic"""
@@ -142,21 +166,34 @@ class Crawler:
         params = {}
         # URL Params
         if "?" in url:
-            for pair in urlparse(url).query.split("&"):
-                if "=" in pair:
-                    k, v = pair.split("=", 1)
-                    params[k] = v
+            query = urlparse(url).query
+            params.update({k: v[0] for k, v in parse_qs(query).items()})
         
-        # Smart Element Discovery
-        selectors = "input, textarea, select, [role='textbox'], .mdc-text-field__input"
-        for i, el in enumerate(page.query_selector_all(selectors)):
+       # 2. ปรับปรุง Smart Discovery (ขจัด Logic Hard-coded ออก)
+        selectors = "input:not([type='submit']), textarea, select, [role='textbox'], [contenteditable='true']"
+        elements = page.query_selector_all(selectors)
+        
+        for i, el in enumerate(elements):
             try:
-                p_name = (el.get_attribute("name") or el.get_attribute("id") or 
-                          el.get_attribute("placeholder") or el.get_attribute("aria-label") or f"p_{i}")
+                # ลำดับความสำคัญ: name > id > placeholder > aria-label > label text
+                name = (el.get_attribute("name") or 
+                        el.get_attribute("id") or 
+                        el.get_attribute("placeholder") or 
+                        el.get_attribute("aria-label"))
                 
-                if "mat-input-1" in p_name: params["q"] = "fuzz"
-                else: params[p_name] = "test"
+                # [NEW] ถ้ายังไม่มีชื่อ ลองหา Label ที่ครอบอยู่หรืออยู่ใกล้ๆ
+                if not name:
+                    label_el = page.query_selector(f"label[for='{el.get_attribute('id')}']")
+                    if label_el: name = label_el.inner_text().strip()
+                
+                final_name = name if name else f"param_{i}"
+                
+                # เลิกใช้ 'fuzz' หรือ 'test' แบบเจาะจง ให้ใส่ค่าว่างหรือค่าเริ่มต้นไว้
+                # เพื่อให้ Scanner เป็นคนตัดสินใจว่าจะฉีด Payload อะไรลงไป
+                params[final_name] = "" 
+                
             except: continue
+            
         return params
 
     def _save_target(self, url: str, params: dict, method: str = "GET", content_type: str = "form"):

@@ -11,8 +11,8 @@ def send_test_jobs():
     
     test_jobs = [
         {"job_id": 1, "target_url": "http://localhost:4040/#/", "attack_type": "sql_injection", "credential": None},
-        # {"id": 102, "target_url": "http://xss-game.appspot.com", "attack_type": "xss", "credentials": {"user": "admin"}},
-        # {"id": 103, "target_url": "http://demo.testfire.net", "attack_type": "sql_injection", "credentials": None},
+        {"job_id": 2, "target_url": "http://localhost:3000/", "attack_type": "xss", "credentials": None},
+        {"job_id": 3, "target_url": "http://localhost:4050/login.php", "attack_type": "sql_injection", "credentials": None},
         # {"job_id": 2, "target_url": "http://localhost:4040/#/", "attack_type": "sql_injection", "credential": None},
     ]
 

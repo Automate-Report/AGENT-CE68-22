@@ -126,7 +126,7 @@ class ScanOrchestrator:
     def _run_xss_scan(self, targets: list):
         findings = []
         for t in targets:
-            url, method, params, c_type = t["url"], t["method"], t.get("params", {}), t["content_type"]
+            url, method, params, c_type = t["url"], t["method"], t.get("params", {}), t.get("content_type", "form")
             self.logger.info(f"--- XSS Scan on: {url} ({method}) ---")
 
             is_api = any(x in url.lower() for x in ["/rest/", "/api/", ".json"])
@@ -145,7 +145,7 @@ class ScanOrchestrator:
     def _run_sqli_scan(self, targets: list):
         findings = []
         for t in targets:
-            url, method, params, c_type = t["url"], t["method"], t.get("params", {}), t["content_type"]
+            url, method, params, c_type = t["url"], t["method"], t.get("params", {}), t.get("content_type", "form")
             self.logger.info(f"--- SQLi Scan on: {url} ({method}) ---")
             findings.extend(self.sqli_scanner.scan(url, params, method, c_type))
         return findings

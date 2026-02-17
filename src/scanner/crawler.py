@@ -23,79 +23,50 @@ class Crawler:
 
     # --- Core Crawl Method ---
 
-    def crawl(self, start_url: str, max_depth: int = 3):
+    def crawl(self, start_url: str, max_depth: int = 2):
         self.logger.info(f"[Crawler] Starting Modern Crawl on: {start_url}")
-        parsed_start = urlparse(start_url)
-        base_domain = parsed_start.netloc 
-        base_scheme = parsed_start.scheme
+        base_domain = urlparse(start_url).netloc
         queue = [(start_url, 0)]
         
         with sync_playwright() as p:
-            browser = p.chromium.launch(channel="chrome", headless=False)
+            browser = p.chromium.launch(channel="chrome", headless=False) # สังเกตการทำงานได้
             context = browser.new_context(ignore_https_errors=True)
             page = context.new_page()
 
-            page.on("dialog", lambda d: d.accept())
-            page.on("request", lambda req: self._intercept_network(req, base_domain))
-
             while queue:
-                current_url, current_depth = queue.pop(0) 
-                clean_url = normalize_url(current_url)
+                current_url, current_depth = queue.pop(0)
                 
-                if clean_url in self.visited_urls or is_static_resource(current_url):
+                # 1. กรองไฟล์ Static และ URL ที่เคยไปแล้ว
+                if is_static_resource(current_url) or current_url in self.visited_urls:
                     continue
                 if current_depth > max_depth: continue
-
-                self.visited_urls.add(clean_url)
+                
+                self.visited_urls.add(current_url)
 
                 try:
-                    # [SESSION] แปะ Cookies/Storage ถ้าเคย Login แล้ว
-                    if self.is_authenticated:
-                        self.auth_handler.apply_session(context)
-
-                    response = page.goto(current_url, wait_until="networkidle", timeout=15000)
-
-                    if urlparse(page.url).netloc != base_domain:
-                        self.logger.warning(f"[-] Out of scope: {page.url}")
-                        continue
-
+                    # 2. เข้าหน้าเว็บ (เพิ่มความทนทานต่อ Timeout)
+                    self.logger.debug(f"[*] Visiting: {current_url}")
+                    page.goto(current_url, wait_until="domcontentloaded", timeout=25000)
+                    
+                    # 3. ใช้ Utils เคลียร์หน้าจอและกระตุ้นปุ่มซ่อน
                     dismiss_obstacles(page)
                     trigger_hidden_elements(page)
-                    safe_wait(page, 500)
+                    safe_wait(page, 1000) # รอให้ SPA render content
 
-                    # 2. SPA Heuristic Path Discovery
-                    important_keywords = {
-                        "Administration": "/#/administration", "Score Board": "/#/score-board",
-                        "Login": "/#/login", "Basket": "/#/basket"
-                    }
-                    for kw, path in important_keywords.items():
-                        try:
-                            if page.get_by_text(kw).first.is_visible(timeout=300):
-                                h_url = f"{base_scheme}://{base_domain}{path}"
-                                if h_url.split('?')[0].rstrip('/') not in self.visited_urls:
-                                    queue.append((h_url, current_depth + 1))
-                        except: continue
+                    # 4. สกัดพารามิเตอร์ (Smart extraction)
+                    found_params = self._process_page(page, current_url)
+                    if found_params:
+                        self._save_target(current_url, found_params, "GET")
 
-                    # 3. Auth Logic (เชื่อมกับ AuthHandler persistence)
-                    if not self.is_authenticated and self.credential:
-                        if self.auth_handler.find_and_login(page, self.credential):
-                            self.is_authenticated = True
-                            # เมื่อ Login สำเร็จ ให้เริ่มสำรวจหน้าใหม่ด้วย Session ใหม่
-                            queue.insert(0, (page.url, current_depth))
-                            continue
-
-                    # 4. Data Extraction
-                    if response and response.status < 400:
-                        found_params = self._process_page(page, current_url)
-                        if found_params:
-                            self._save_target(current_url, found_params, "GET")
-
-                        if current_depth < max_depth:
-                            for link in self._discover_links(page, current_url, base_domain):
+                    # 5. ค้นหา Link เพื่อไปต่อ
+                    if current_depth < max_depth:
+                        links = self._discover_links(page, current_url, base_domain)
+                        for link in links:
+                            if link not in self.visited_urls:
                                 queue.append((link, current_depth + 1))
 
                 except Exception as e:
-                    self.logger.debug(f"[-] Skip {current_url}: {e}")
+                    self.logger.warning(f"[!] Skip {current_url}: {str(e)[:60]}")
 
             browser.close()
         return self.collected_targets
@@ -163,79 +134,49 @@ class Crawler:
         except: pass
 
     def _process_page(self, page: Page, url: str) -> dict:
-        # 1. รอให้ SPA (Angular/React) Render ให้เสร็จ
+        # เพิ่มการรอให้ Component ของ Angular โหลดเสร็จจริง
         try:
-            page.wait_for_selector("input, button, form", timeout=3000)
+            page.wait_for_selector("mat-card, form, input[name='email']", timeout=5000)
         except: pass
-
-        parsed_url = urlparse(url)
-        params = {}
         
-        # 2. คัดกรอง Input เฉพาะที่มองเห็นและไม่ได้ซ่อนไว้
-        selectors = "input:not([type='submit']), textarea, select, [role='textbox'], [contenteditable='true']"
-        elements = page.query_selector_all(selectors)
+        # 1. ให้เวลามันหายใจหน่อย (เพิ่มเวลาเป็น 3-5 วินาที สำหรับ localhost ที่ช้า)
+        page.wait_for_timeout(3000) 
+        
+        params = {}
+        # 2. ปรับ Selector ให้เบสิกที่สุดเพื่อเช็คว่าเจอมั้ย
+        elements = page.query_selector_all("input, textarea, select")
         
         for i, el in enumerate(elements):
             try:
+                # ข้ามปุ่มและ hidden (ยกเว้นพวกรหัสผ่านหรือ text)
+                type_attr = el.get_attribute("type") or ""
+                if type_attr in ["submit", "button", "hidden"]: 
+                    continue
+
                 name = (el.get_attribute("name") or 
                         el.get_attribute("id") or 
                         el.get_attribute("placeholder") or 
                         f"input_{i}")
                 
-                # 3. วิเคราะห์ Context (พารามิเตอร์นี้อยู่ที่ไหนใน DOM?)
-                # ถ้าอยู่ในหน้าหลัก (Nav) หรือ Footer มักจะเป็น Global Param
-                is_global = el.evaluate("""node => {
-                    const nav = node.closest('nav, header, footer');
-                    return nav !== null;
-                }""")
-
-                params[name] = {
-                    "value": "",
-                    "is_global": is_global,
-                    "selector": f"#{el.get_attribute('id')}" if el.get_attribute("id") else name
-                }
+                # เก็บค่าแบบ Simple ก่อนเพื่อเช็คการทำงาน
+                params[name] = {"value": ""} 
             except: continue
-
-        # 4. ตรวจสอบความซ้ำซ้อนก่อนส่งไปสแกน
-        if params and self.deduplicator.is_seen("GET", parsed_url.path, params):
-            self.logger.debug(f"[Crawler] Skipping duplicate structure at {parsed_url.path}")
-            return {}
-
+            
         return params
-
-    def _save_target(self, url: str, params: dict, method: str = "GET", content_type: str = "form"):
-        """
-        บันทึกเป้าหมายที่พบ โดยใช้ Deduplicator ตรวจสอบความซ้ำซ้อนของโครงสร้างพารามิเตอร์
-        """
-        # 1. เตรียมข้อมูลพื้นฐาน
-        parsed_url = urlparse(url)
-        # ตัด Query String และ Fragment ออกเพื่อหา Base Path
-        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
-        url_path = parsed_url.path
-        method = method.upper()
-
-        # 2. ตรวจสอบความซ้ำซ้อนผ่าน Deduplicator 
-        # (ใช้ is_seen ที่เราแก้ใหม่ ซึ่งรับค่า method, path, และ params)
-        if not self.deduplicator.is_seen(method, url_path, params):
-            
-            # 3. วิเคราะห์ Context เพิ่มเติม (Optional: เพื่อให้ Scanner ทำงานแม่นขึ้น)
-            # เราสามารถแยกได้ว่าพารามิเตอร์ไหนเป็น Global จากข้อมูลที่เก็บมาใน _process_page
-            
-            target_data = {
-                "url": base_url, 
-                "method": method, 
-                "content_type": content_type, 
+    
+    def _save_target(self, url: str, params: dict, method: str):
+        parsed = urlparse(url)
+        path = parsed.path if parsed.path else "/"
+        if not self.deduplicator.is_seen(method, path, params):
+            self.collected_targets.append({
+                "url": url.split('?')[0],
+                "method": method,
                 "params": params,
-                "context": "html_body" # ค่าเริ่มต้น หรือจะปรับตามที่ process_page ส่งมา
-            }
+                "content_type": "form",  # <--- เพิ่มบรรทัดนี้เข้าไป
+                "context": "html_body"
+            })
+            self.logger.info(f"     [+] Discovered: {method} {path} {list(params.keys())}")
 
-            self.collected_targets.append(target_data)
-            
-            # เก็บ Log เฉพาะตัวที่เพิ่มใหม่
-            param_names = list(params.keys())
-            self.logger.info(f"     [+] Discovered New Structure: {method} {url_path} {param_names}")
-        else:
-            self.logger.debug(f"     [-] Duplicate Structure Blocked: {url_path} with params {list(params.keys())}")
 
     def _discover_links(self, page: Page, current_url: str, allowed_domain: str) -> set:
         links_found = set()

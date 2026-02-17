@@ -17,9 +17,15 @@ def normalize_url(url: str) -> str:
     return url.split('?')[0].split('#')[0].rstrip('/')
 
 def is_static_resource(url: str) -> bool:
-    """เช็คว่าเป็นไฟล์ Static ที่ไม่ควรสแกนหรือไม่"""
-    static_ext = ('.jpg', '.jpeg', '.png', '.gif', '.css', '.js', '.woff', '.woff2', '.pdf', '.svg', '.zip')
-    return url.lower().endswith(static_ext)
+    """เช็คว่าเป็นไฟล์ Static ที่ไม่ควรสแกนหรือไม่ (อัปเดตเพื่อแก้ปัญหา Font Download)"""
+    static_ext = (
+        '.jpg', '.jpeg', '.png', '.gif', '.css', '.js', 
+        '.woff', '.woff2', '.ttf', '.eot', '.otf', # Fonts
+        '.pdf', '.svg', '.zip', '.ico', '.webp'
+    )
+    # ล้าง URL ก่อนเช็คเผื่อมี Query string ต่อท้าย
+    clean_path = url.split('?')[0].lower()
+    return clean_path.endswith(static_ext)
 
 def get_spa_path(url: str) -> str:
     """ดึง Path ของ SPA (รวมส่วนหลัง /#/)"""

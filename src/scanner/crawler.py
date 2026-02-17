@@ -118,6 +118,26 @@ class Crawler:
                 except: pass
                 self._save_target(request.url, params, request.method, content_type)
 
+    def _smart_form_filler(self, page: Page):
+        """เติมข้อมูลในฟอร์มอัตโนมัติ เพื่อกระตุ้นให้เกิด Network Traffic"""
+        inputs = page.query_selector_all("input:visible")
+        for inp in inputs:
+            try:
+                i_type = inp.get_attribute("type") or ""
+                # เติมค่าที่ 'สมเหตุสมผล' เพื่อให้ผ่าน Validation ของ Frontend
+                if "email" in i_type or "user" in inp.get_attribute("id"):
+                    inp.fill("admin@test.local")
+                elif "password" in i_type:
+                    inp.fill("Password123!")
+                else:
+                    inp.fill("pentest_test")
+            except: continue
+        
+        # พยายามกดปุ่มที่น่าจะเป็นปุ่ม Submit
+        try:
+            page.locator("button[type='submit'], button:has-text('Log'), button:has-text('Search')").first.click(timeout=1000)
+        except: pass
+
     def _process_page(self, page: Page, url: str) -> dict:
         params = {}
         # URL Params

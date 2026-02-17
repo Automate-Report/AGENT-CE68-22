@@ -128,15 +128,18 @@ class ScanOrchestrator:
         for t in targets:
             url, method, params, c_type = t["url"], t["method"], t.get("params", {}), t["content_type"]
             self.logger.info(f"--- XSS Scan on: {url} ({method}) ---")
+
+            is_api = any(x in url.lower() for x in ["/rest/", "/api/", ".json"])
             
             # Run Reflected
             findings.extend(self.reflected_scanner.scan(url, params, method, c_type))
             # Run DOM (สังเกตว่าส่ง auth_info เข้าไปเพื่อให้ Verifier ใช้ได้)
-            self.dom_scanner.auth_info = {
-                "cookies": self.crawler.auth_handler.cookies,
-                "auth_storage": self.crawler.auth_handler.auth_token
-            }
-            findings.extend(self.dom_scanner.scan(url, params, method))
+            if not is_api:
+                self.dom_scanner.auth_info = {
+                    "cookies": self.crawler.auth_handler.cookies,
+                    "auth_storage": self.crawler.auth_handler.auth_token
+                }
+                findings.extend(self.dom_scanner.scan(url, params, method))
         return findings
 
     def _run_sqli_scan(self, targets: list):

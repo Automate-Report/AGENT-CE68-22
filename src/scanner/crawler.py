@@ -172,7 +172,7 @@ class Crawler:
         params = {}
         
         # 2. คัดกรอง Input เฉพาะที่มองเห็นและไม่ได้ซ่อนไว้
-        selectors = "input:not([type='submit']), textarea, select"
+        selectors = "input:not([type='submit']), textarea, select, [role='textbox'], [contenteditable='true']"
         elements = page.query_selector_all(selectors)
         
         for i, el in enumerate(elements):

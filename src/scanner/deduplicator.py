@@ -1,7 +1,7 @@
 #ตัด url ที่ซ้ำ
 class Deduplicator:
     def __init__(self):
-        self.seen_urls = set()
+        self.seen_signatures = set()
 
     def is_seen(self, method: str, url_path: str, params: dict) -> bool:
         param_keys = ",".join(sorted(params.keys()))
@@ -11,6 +11,3 @@ class Deduplicator:
             return True
         self.seen_signatures.add(signature)
         return False
-
-    def add(self, item: str):
-        self.seen_urls.add(item)

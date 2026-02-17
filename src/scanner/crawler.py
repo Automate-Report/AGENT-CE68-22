@@ -172,7 +172,7 @@ class Crawler:
         params = {}
         
         # 2. คัดกรอง Input เฉพาะที่มองเห็นและไม่ได้ซ่อนไว้
-        selectors = "input:not([type='submit']):visible, textarea:visible, select:visible"
+        selectors = "input:not([type='submit']), textarea, select"
         elements = page.query_selector_all(selectors)
         
         for i, el in enumerate(elements):
@@ -235,8 +235,7 @@ class Crawler:
             param_names = list(params.keys())
             self.logger.info(f"     [+] Discovered New Structure: {method} {url_path} {param_names}")
         else:
-            # กรณีที่ซ้ำ (เช่น mat-input-1 ที่เจอในหน้าอื่นไปแล้ว)
-            self.logger.debug(f"     [-] Skipping Duplicate Structure: {method} {url_path}")
+            self.logger.debug(f"     [-] Duplicate Structure Blocked: {url_path} with params {list(params.keys())}")
 
     def _discover_links(self, page: Page, current_url: str, allowed_domain: str) -> set:
         links_found = set()

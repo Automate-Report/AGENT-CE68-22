@@ -1,6 +1,6 @@
 import json
 from playwright.sync_api import sync_playwright, Page, Request
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse, urljoin,  parse_qs
 
 from src.scanner.deduplicator import Deduplicator
 from src.scanner.auth_handler import AuthHandler
@@ -105,13 +105,18 @@ class Crawler:
         if request.resource_type in ["fetch", "xhr"] and "socket.io" not in request.url:
             if urlparse(request.url).netloc == base_domain:
                 params = {}
+                content_type = "form"
+
                 try:
-                    if request.post_data:
-                        data = json.loads(request.post_data)
-                        if isinstance(data, dict):
-                            params = {k: "val" for k in data.keys()}
+                    post_data = request.post_data
+                    if post_data:
+                        if request.headers.get("content-type") == "application/json":
+                            params = json.loads(post_data)
+                            content_type = "json"
+                        else:
+                            params = {k: v[0] for k, v in parse_qs(post_data).items()}
                 except: pass
-                self._save_target(request.url, params, request.method, "json")
+                self._save_target(request.url, params, request.method, content_type)
 
     def _process_page(self, page: Page, url: str) -> dict:
         params = {}
@@ -146,7 +151,7 @@ class Crawler:
                 "url": base_url, "method": method, 
                 "content_type": content_type, "params": params
             })
-            self.logger.info(f"     [+] Discovered: {method} {base_url} ({len(params)} params)")
+            self.logger.info(f"     [+] Discovered: {method} {base_url} {params}")
 
     def _discover_links(self, page: Page, current_url: str, allowed_domain: str) -> set:
         links_found = set()

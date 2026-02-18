@@ -33,10 +33,6 @@ class Crawler:
             browser = p.chromium.launch(channel="chrome", headless=False) # สังเกตการทำงานได้
             context = browser.new_context(ignore_https_errors=True)
 
-            page = context.new_page()
-            page.on("request", lambda req: self._intercept_network(req, base_domain))
-            page.on("response", self._intercept_response_leak)
-
             while queue:
                 current_url, current_depth = queue.pop(0)
                 
@@ -47,6 +43,10 @@ class Crawler:
                 
                 self.visited_urls.add(current_url)
 
+                page = context.new_page()
+                page.on("request", lambda req: self._intercept_network(req, base_domain))
+                page.on("response", self._intercept_response_leak)
+
                 try:
                     self.auth_handler.apply_session(context)
                     # 2. เข้าหน้าเว็บ (เพิ่มความทนทานต่อ Timeout)
@@ -54,65 +54,79 @@ class Crawler:
                     page.goto(current_url, wait_until="domcontentloaded", timeout=25000)
                     
                     if page.locator('input[type="password"]').count() > 0 and not self.is_authenticated:
-                        self.logger.info(f"[*] Login detected at {current_url}")
-                        # 1. ลอง Login ปกติ
-                        if self.credential:
-                            self.is_authenticated = self.auth_handler.find_and_login(page, self.credential)
-                        # 2. ถ้าไม่ได้/ไม่มีรหัส ลองเจาะด้วย SQLi Bypass (Aggressive Entry)
-                        if not self.is_authenticated:
-                            self.is_authenticated = self.auth_handler.aggressive_entry(page)
+                        self.logger.info(f"[*] Login form detected at {current_url}")
                         
-                        if self.is_authenticated:
+                        success = False
+                        # 1. ลอง Login ด้วย Credential ที่ผู้ใช้ให้มา
+                        if self.credential:
+                            success = self.auth_handler.find_and_login(page, self.credential)
+                        
+                        # 2. ถ้าไม่สำเร็จ/ไม่มีรหัส ลองใช้ SQLi Bypass หรือรหัสพื้นฐาน (Aggressive)
+                        if not success:
+                            success = self.auth_handler.aggressive_entry(page)
+                        
+                        if success:
+                            self.is_authenticated = True
                             self.auth_handler._capture_session(page)
-                            queue.insert(0, (current_url, current_depth)) # กลับไปสแกนหน้านี้ใหม่หลังเข้าหลังบ้านได้
-                            continue
+                            self.logger.info("[+] Login Successful! Restarting discovery for internal pages...")
+                            
+                            # --- RECURSIVE DISCOVERY LOGIC ---
+                            # ล้างประวัติเพื่อให้ Crawler ยอมกลับไปขุดหน้าเดิมแต่ด้วยสิทธิ์ User
+                            self.visited_urls.clear()
+                            # ใส่ start_url กลับไปที่ต้นคิว
+                            queue.insert(0, (start_url, 0))
+                            
+                            page.close()
+                            continue # ข้ามรอบนี้ไปเริ่มใหม่จากจุดเริ่มพร้อม Session
 
                     # [DISCOVERY PHASE]
                     dismiss_obstacles(page)
                     
-                    # 1. ขุดพารามิเตอร์จาก DOM
+                    # 1. สกัดพารามิเตอร์จาก HTML (DOM)
                     found_params = self._process_page(page, current_url)
                     if found_params:
                         self._save_target(current_url, found_params, "GET", "form")
 
-                    # 2. ขุด Endpoint ลับจาก JS (Static Analysis)
+                    # 2. ขุด Endpoint ลับจากไฟล์ JS
                     self._extract_from_js_static(page, base_domain)
 
-                    # 3. กระตุ้น Event เพื่อให้ _intercept_network ดักเจอ API (Interaction)
+                    # 3. ลองกดปุ่ม/กรอกข้อมูล เพื่อกระตุ้น API Call
                     self._trigger_smart_interaction(page)
 
-                    # [FIND NEXT LINKS]
+                    # [FIND LINKS TO NEXT PAGES]
                     if current_depth < max_depth:
-                        for link in self._discover_links(page, current_url, base_domain):
+                        links = self._discover_links(page, current_url, base_domain)
+                        for link in links:
                             if link not in self.visited_urls:
                                 queue.append((link, current_depth + 1))
 
                 except Exception as e:
                     self.logger.warning(f"[!] Skip {current_url}: {str(e)[:60]}")
+                finally:
+                    # ปิดหน้าเสมอเพื่อป้องกัน Memory Leak
+                    page.close()
 
             browser.close()
         return self.collected_targets
 
-    # ปรับปรุงใน Crawler._intercept_network
     def _intercept_network(self, request: Request, base_domain: str):
-        # กรองเฉพาะไฟล์ที่อาจมีช่องโหว่ (ข้ามไฟล์ Static)
-        if any(x in request.url for x in ["socket.io", ".woff", ".svg", ".png"]):
+        # กรอง Noise จาก Library ระบบ หรือไฟล์รูปภาพ
+        if any(x in request.url for x in ["socket.io", ".woff", ".svg", ".png", ".jpg"]):
             return
         
         if request.resource_type in ["fetch", "xhr", "document"]:
             parsed_url = urlparse(request.url)
-            
             if parsed_url.netloc == base_domain:
                 method = request.method.upper()
                 params = {}
                 content_type = "form"
 
-                # 1. ดักจับ Query String (GET)
+                # ดักจับพารามิเตอร์จาก URL
                 query_params = parse_qs(parsed_url.query)
                 if query_params:
                     params.update({k: v[0] for k, v in query_params.items()})
 
-                # 2. ดักจับ Body (POST/PUT/PATCH)
+                # ดักจับพารามิเตอร์จาก Body (JSON/Form)
                 post_data = request.post_data
                 if post_data:
                     ct_header = request.headers.get("content-type", "").lower()
@@ -122,14 +136,26 @@ class Crawler:
                             content_type = "json"
                         except: pass
                     else:
-                        body_params = {k: v[0] for k, v in parse_qs(post_data).items()}
-                        params.update(body_params)
+                        try:
+                            params.update({k: v[0] for k, v in parse_qs(post_data).items()})
+                        except: pass
 
-                # 3. บันทึกผลผ่าน Deduplicator
                 if params or method in ["POST", "PUT", "DELETE"]:
                     clean_url = normalize_url(request.url)
-
                     self._save_target(clean_url, params, method, content_type)
+
+    def _save_target(self, url: str, params: dict, method: str, c_type: str):
+        parsed = urlparse(url)
+        path = parsed.path if parsed.path else "/"
+        if not self.deduplicator.is_seen(method, path, params):
+            self.collected_targets.append({
+                "url": url.split('?')[0],
+                "method": method,
+                "params": params,
+                "content_type": c_type,
+                "context": "dynamic_intercept" if c_type == "json" else "html_body"
+            })
+            self.logger.info(f"     [+] Discovered: {method} {path} {list(params.keys())}")
 
     def _smart_form_filler(self, page: Page):
         """เติมข้อมูลในฟอร์มอัตโนมัติ เพื่อกระตุ้นให้เกิด Network Traffic"""
@@ -182,19 +208,6 @@ class Crawler:
             
         return params
     
-    def _save_target(self, url: str, params: dict, method: str, c_type: str):
-        parsed = urlparse(url)
-        path = parsed.path if parsed.path else "/"
-        if not self.deduplicator.is_seen(method, path, params):
-            self.collected_targets.append({
-                "url": url.split('?')[0],
-                "method": method,
-                "params": params,
-                "content_type": c_type,  
-                "context": "html_body"
-            })
-            self.logger.info(f"     [+] Discovered: {method} {path} {list(params.keys())}")
-
 
     def _discover_links(self, page: Page, current_url: str, allowed_domain: str) -> set:
         links_found = set()

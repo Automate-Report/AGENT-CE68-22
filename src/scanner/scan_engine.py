@@ -55,6 +55,7 @@ class ScanOrchestrator:
             # 2. Discovery Phase (Crawling)
             self.logger.info(f"[ScanEngine] Starting Discovery on {self.target}...")
             crawled_targets = self.crawler.crawl(self.target)
+            print(crawled_targets)
             
             # [MODIFIED] ทำความสะอาด URL ก่อนส่งกลับ
             cleaned_urls = [normalize_url(t["url"]) for t in crawled_targets]

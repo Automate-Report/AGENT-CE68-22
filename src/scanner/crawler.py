@@ -1,4 +1,5 @@
 import json
+import re
 from playwright.sync_api import sync_playwright, Page, Request
 from urllib.parse import urlparse, urljoin,  parse_qs, unquote
 
@@ -24,14 +25,17 @@ class Crawler:
     # --- Core Crawl Method ---
 
     def crawl(self, start_url: str, max_depth: int = 2):
-        self.logger.info(f"[Crawler] Starting Modern Crawl on: {start_url}")
+        self.logger.info(f"[Crawler] Starting Crawl on: {start_url}")
         base_domain = urlparse(start_url).netloc
         queue = [(start_url, 0)]
         
         with sync_playwright() as p:
             browser = p.chromium.launch(channel="chrome", headless=False) # สังเกตการทำงานได้
             context = browser.new_context(ignore_https_errors=True)
+
             page = context.new_page()
+            page.on("request", lambda req: self._intercept_network(req, base_domain))
+            page.on("response", self._intercept_response_leak)
 
             while queue:
                 current_url, current_depth = queue.pop(0)
@@ -44,24 +48,42 @@ class Crawler:
                 self.visited_urls.add(current_url)
 
                 try:
+                    self.auth_handler.apply_session(context)
                     # 2. เข้าหน้าเว็บ (เพิ่มความทนทานต่อ Timeout)
                     self.logger.debug(f"[*] Visiting: {current_url}")
                     page.goto(current_url, wait_until="domcontentloaded", timeout=25000)
                     
-                    # 3. ใช้ Utils เคลียร์หน้าจอและกระตุ้นปุ่มซ่อน
-                    dismiss_obstacles(page)
-                    trigger_hidden_elements(page)
-                    safe_wait(page, 1000) # รอให้ SPA render content
+                    if page.locator('input[type="password"]').count() > 0 and not self.is_authenticated:
+                        self.logger.info(f"[*] Login detected at {current_url}")
+                        # 1. ลอง Login ปกติ
+                        if self.credential:
+                            self.is_authenticated = self.auth_handler.find_and_login(page, self.credential)
+                        # 2. ถ้าไม่ได้/ไม่มีรหัส ลองเจาะด้วย SQLi Bypass (Aggressive Entry)
+                        if not self.is_authenticated:
+                            self.is_authenticated = self.auth_handler.aggressive_entry(page)
+                        
+                        if self.is_authenticated:
+                            self.auth_handler._capture_session(page)
+                            queue.insert(0, (current_url, current_depth)) # กลับไปสแกนหน้านี้ใหม่หลังเข้าหลังบ้านได้
+                            continue
 
-                    # 4. สกัดพารามิเตอร์ (Smart extraction)
+                    # [DISCOVERY PHASE]
+                    dismiss_obstacles(page)
+                    
+                    # 1. ขุดพารามิเตอร์จาก DOM
                     found_params = self._process_page(page, current_url)
                     if found_params:
-                        self._save_target(current_url, found_params, "GET")
+                        self._save_target(current_url, found_params, "GET", "form")
 
-                    # 5. ค้นหา Link เพื่อไปต่อ
+                    # 2. ขุด Endpoint ลับจาก JS (Static Analysis)
+                    self._extract_from_js_static(page, base_domain)
+
+                    # 3. กระตุ้น Event เพื่อให้ _intercept_network ดักเจอ API (Interaction)
+                    self._trigger_smart_interaction(page)
+
+                    # [FIND NEXT LINKS]
                     if current_depth < max_depth:
-                        links = self._discover_links(page, current_url, base_domain)
-                        for link in links:
+                        for link in self._discover_links(page, current_url, base_domain):
                             if link not in self.visited_urls:
                                 queue.append((link, current_depth + 1))
 
@@ -71,47 +93,43 @@ class Crawler:
             browser.close()
         return self.collected_targets
 
+    # ปรับปรุงใน Crawler._intercept_network
     def _intercept_network(self, request: Request, base_domain: str):
-        # 1. กรองเฉพาะสิ่งที่น่าสนใจ และข้ามพวกไฟล์ขยะ/Socket
-        ignored_exts = [".js", ".css", ".png", ".jpg", ".svg", ".woff"]
-        if request.resource_type not in ["fetch", "xhr"] or any(request.url.split('?')[0].endswith(ext) for ext in ignored_exts):
+        # กรองเฉพาะไฟล์ที่อาจมีช่องโหว่ (ข้ามไฟล์ Static)
+        if any(x in request.url for x in ["socket.io", ".woff", ".svg", ".png"]):
             return
-
-        if urlparse(request.url).netloc == base_domain and "socket.io" not in request.url:
-            params = {}
-            content_type = "form"
+        
+        if request.resource_type in ["fetch", "xhr", "document"]:
+            parsed_url = urlparse(request.url)
             
-            try:
-                # --- ดักจับพารามิเตอร์จาก URL (Query String) ---
-                query_params = parse_qs(urlparse(request.url).query)
+            if parsed_url.netloc == base_domain:
+                method = request.method.upper()
+                params = {}
+                content_type = "form"
+
+                # 1. ดักจับ Query String (GET)
+                query_params = parse_qs(parsed_url.query)
                 if query_params:
                     params.update({k: v[0] for k, v in query_params.items()})
 
-                # --- ดักจับพารามิเตอร์จาก Body ---
+                # 2. ดักจับ Body (POST/PUT/PATCH)
                 post_data = request.post_data
                 if post_data:
-                    header_ct = request.headers.get("content-type", "").lower()
-                    
-                    if "application/json" in header_ct:
-                        params.update(json.loads(post_data))
-                        content_type = "json"
+                    ct_header = request.headers.get("content-type", "").lower()
+                    if "application/json" in ct_header:
+                        try:
+                            params.update(json.loads(post_data))
+                            content_type = "json"
+                        except: pass
                     else:
                         body_params = {k: v[0] for k, v in parse_qs(post_data).items()}
                         params.update(body_params)
 
-            except Exception as e:
-                self.logger.debug(f"[-] Intercept parse error: {e}")
+                # 3. บันทึกผลผ่าน Deduplicator
+                if params or method in ["POST", "PUT", "DELETE"]:
+                    clean_url = normalize_url(request.url)
 
-            # 2. บันทึก Target เฉพาะที่มีพารามิเตอร์ (เพื่อลด Noise ในการสแกน)
-            if params:
-                # เพิ่มการเก็บ Headers ที่จำเป็น (เช่น Token) ถ้าคุณทำระบบ Persistence ไว้
-                self._save_target(
-                    url=request.url.split('?')[0], # เก็บเฉพาะ Base URL
-                    params=params, 
-                    method=request.method, 
-                    content_type=content_type
-                )
-                self.logger.info(f"    [Intercepted API] {request.method} {request.url[:50]}... ({len(params)} params)")
+                    self._save_target(clean_url, params, method, content_type)
 
     def _smart_form_filler(self, page: Page):
         """เติมข้อมูลในฟอร์มอัตโนมัติ เพื่อกระตุ้นให้เกิด Network Traffic"""
@@ -164,7 +182,7 @@ class Crawler:
             
         return params
     
-    def _save_target(self, url: str, params: dict, method: str):
+    def _save_target(self, url: str, params: dict, method: str, c_type: str):
         parsed = urlparse(url)
         path = parsed.path if parsed.path else "/"
         if not self.deduplicator.is_seen(method, path, params):
@@ -172,7 +190,7 @@ class Crawler:
                 "url": url.split('?')[0],
                 "method": method,
                 "params": params,
-                "content_type": "form",  # <--- เพิ่มบรรทัดนี้เข้าไป
+                "content_type": c_type,  
                 "context": "html_body"
             })
             self.logger.info(f"     [+] Discovered: {method} {path} {list(params.keys())}")
@@ -197,3 +215,56 @@ class Crawler:
                     links_found.add(full_url)
             except: continue
         return links_found
+    
+    def _trigger_smart_interaction(self, page: Page):
+        """[FUNCTION 1] กระตุ้นการทำงานของ API ที่ซ่อนอยู่หลังปุ่มหรือฟอร์ม"""
+        self.logger.info("    [..] Triggering smart interactions to discover APIs...")
+        
+        # 1. ค้นหาและลองกรอกข้อมูลใน Input ทุกตัว (เพื่อให้ Event listener ทำงาน)
+        try:
+            inputs = page.locator("input:visible, textarea:visible").all()
+            for i, inp in enumerate(inputs[:10]): # จำกัดเพื่อความเร็ว
+                inp.fill(f"test_data_{i}")
+        except: pass
+
+        # 2. ลองคลิกปุ่มที่มีโอกาสเรียก API (ข้ามปุ่ม Logout)
+        try:
+            buttons = page.locator("button:visible, [role='button']").all()
+            for btn in buttons[:5]:
+                # ข้ามปุ่มที่อาจทำให้ Session หลุด
+                text = btn.inner_text().lower()
+                if any(x in text for x in ["logout", "signout", "exit", "ออกจากระบบ"]): continue
+                
+                btn.click(timeout=1000)
+                page.wait_for_timeout(500) # รอให้ Network ทำงาน
+        except: pass
+
+    def _extract_from_js_static(self, page, base_domain):
+        """[FUNCTION 2] ขุดหา Endpoint ลับจากไฟล์ JavaScript (Static Analysis)"""
+        self.logger.info("    [..] Extracting endpoints from JS files...")
+        
+        scripts = page.evaluate("""() => Array.from(document.scripts).map(s => s.src).filter(src => src)""")
+        
+        for js_url in scripts:
+            if urlparse(js_url).netloc == base_domain:
+                try:
+                    res = self.requester.send("GET", js_url)
+                    # Regex ค้นหา Path ที่ขึ้นต้นด้วย /api หรือคำที่น่าสนใจ
+                    pattern = r'\"(\/[\w\d\-\.\/\{\}]+)\"|\'(\/[\w\d\-\.\/\{\}]+)\''
+                    found = re.findall(pattern, res.text)
+                    for matches in found:
+                        for path in matches:
+                            if path and len(path) > 2 and any(x in path for x in ["/api", "v1", "v2", ".php", ".json"]):
+                                # บันทึกเป็น GET endpoint พื้นฐานไว้ก่อน
+                                self._save_target(urljoin(page.url, path), {}, "GET", "json")
+                except: pass
+
+    def _intercept_response_leak(self, response):
+        """[FUNCTION 3] ตรวจสอบข้อมูลหลุดใน Response (Sensitive Data Exposure)"""
+        try:
+            if "application/json" in response.headers.get("content-type", ""):
+                body = response.text()
+                # ตัวอย่าง: ตรวจหา Email หรือรูปแบบเลขบัตร (Generic Pattern)
+                if re.search(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', body):
+                    self.logger.warning(f"    [!] Potential PII Leak (Email) found in API: {response.url}")
+        except: pass

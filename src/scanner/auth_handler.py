@@ -94,15 +94,15 @@ class AuthHandler:
 
     def _capture_session(self, page: Page):
         """เก็บ Session ข้อมูลเพื่อใช้ Persistence"""
-        self.session_cookies = page.context.cookies()
+        self.cookies = page.context.cookies()
         # เก็บ LocalStorage เผื่อเป็นแอปแบบ JWT (SPA)
         self.auth_token = page.evaluate("() => JSON.stringify(localStorage)")
         self.logger.debug("[Auth] Session captured and stored.")
 
     def apply_session(self, context):
         """ใช้ฟังก์ชันนี้ใน Crawler เพื่อโหลด Session ที่เคย Login แล้ว"""
-        if self.session_cookies:
-            context.add_cookies(self.session_cookies)
+        if self.cookies:
+            context.add_cookies(self.cookies)
             # หมายเหตุ: LocalStorage ต้องยัดผ่าน page.evaluate หลังจากเปิดหน้าแรก
             return True
         return False

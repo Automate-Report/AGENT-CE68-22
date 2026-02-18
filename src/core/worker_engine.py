@@ -40,8 +40,7 @@ class WorkerEngine:
             scan_result = orchestrator.run_workflow()
 
             full_logs = scan_result.get("logs", "")
-            log_lines = len(full_logs.splitlines())
-            self.logger.info(f"Job {job_id} generated {log_lines} lines of logs.")
+            self.logger.info(f"Job {job_id} generated {full_logs}")
 
             # ส่ง pen test log กลับไปที่ Backend
             self.bridge.post_result(scan_result)

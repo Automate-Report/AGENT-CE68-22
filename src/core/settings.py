@@ -44,7 +44,7 @@ class Settings:
         self.logger = setup_logger("Worker")
 
         # extract จาก exe
-        self.worker_id = 2
+        self.worker_id = 1
         self.backend_url = "http://localhost:8000"
         self.get_worker_endpoint = "/workers/"
         self.verify_endpoint = "/workers/verify"

@@ -47,7 +47,7 @@ class Settings:
         self.worker_id = 1
         self.backend_url = "http://localhost:8000"
         self.get_worker_endpoint = "/workers/"
-        self.verify_endpoint = "/workers/verify"
+        self.verify_endpoint = "/workers/verify/"
         self.send_pentest_log = "/pentest-logs/" 
         self.heartbeat = "/workers/heartbeat/"
         self.update_job_status = "/jobs/update_status/"

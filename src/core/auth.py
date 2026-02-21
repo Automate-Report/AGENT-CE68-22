@@ -44,7 +44,11 @@ class AuthManager:
                 self.token = data.get("token")
                 return True
             else:
-                self.logger.error(f"[Auth] Verification Failed: {response.status_code}")
+                try:
+                    error_detail = response.json().get("detail", "No detail provided")
+                    self.logger.error(f"[Auth] Verification Failed: {response.status_code} - {error_detail}")
+                except:
+                    self.logger.error(f"[Auth] Verification Failed: {response.status_code}")
                 return False
 
         except Exception as e:

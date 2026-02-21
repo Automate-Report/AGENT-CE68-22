@@ -2,6 +2,7 @@ import requests
 import sys
 import time
 import threading
+import socket
 from src.core.auth import AuthManager
 from src.core.settings import settings
 from src.core.logger import setup_logger
@@ -11,6 +12,19 @@ class BackendBridge:
         self.auth = auth_manager
         self.active_threads = 0
         self.logger = setup_logger("Bridge")
+
+    def get_internal_ip(self):
+        """ดึง Local IP ของเครื่องที่ Worker กำลังรันอยู่"""
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            # ใช้ 8.8.8.8 เพื่อหา Route ที่ออกสู่ Network ได้ (ไม่ได้มีการส่งข้อมูลจริง)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+        except Exception:
+            ip = "127.0.0.1"
+        finally:
+            s.close()
+        return ip
 
     def send_heartbeat(self):
         """ ส่ง Heartbeat พร้อม load data"""
@@ -22,9 +36,12 @@ class BackendBridge:
 
             url = f"{settings.backend_url}{settings.heartbeat}"
 
+            local_ip = self.get_internal_ip()
+
             payload = {
                 "current_load": self.active_threads,
-                "status": "online"
+                "status": "online",
+                "internal_ip": local_ip
             }
 
             response = requests.post(url, json=payload, headers=headers, timeout=10)

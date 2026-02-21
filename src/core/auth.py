@@ -1,4 +1,5 @@
 import requests
+import socket
 from src.core.settings import settings
 from src.core.logger import setup_logger
 
@@ -7,14 +8,31 @@ class AuthManager:
         self.token = None
         self.logger = setup_logger("AuthManager")
 
+    def get_internal_ip(self):
+        """ดึง Local IP ของเครื่องที่ Worker กำลังรันอยู่"""
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            # ใช้ 8.8.8.8 เพื่อหา Route ที่ออกสู่ Network ได้ (ไม่ได้มีการส่งข้อมูลจริง)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+        except Exception:
+            ip = "127.0.0.1"
+        finally:
+            s.close()
+        return ip
+
     def verify_worker(self):
         """แลก Access Key เป็น JWT Token"""
         try: 
             url = f"{settings.backend_url}{settings.verify_endpoint}"
+
+            local_ip = self.get_internal_ip()
+
             payload = {
                 "worker_id": settings.worker_id,
                 "key": settings.access_key,
-                "hostname": settings.hostname
+                "hostname": settings.hostname,
+                "internal_ip": local_ip
             }
 
             response = requests.post(url, json=payload, timeout=10) 

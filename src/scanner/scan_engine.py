@@ -88,7 +88,7 @@ class ScanOrchestrator:
 
             if self.attack_type == "sql_injection":
                 results = self._run_sqli_scan(crawled_targets)
-            elif self.attack_type == "xss":
+            elif self.attack_type == "XSS":
                 results = self._run_xss_scan(crawled_targets)
             else:
                 self.logger.warning(f"[ScanEngine] Unknown attack type: {self.attack_type}")

@@ -3,6 +3,7 @@ import json
 import os
 import getpass
 import requests
+import socket
 
 from cryptography.fernet import Fernet
 
@@ -31,7 +32,7 @@ class Settings:
         
         self.access_key = "vZTxJ2OKyhR1c1VHTAZySvVzw-JK0k1iY5m4AaFWYPs"
         self.poll_interval = 5
-        self.hostname = "test"
+        self.hostname = socket.gethostname()
         self.maxThread = 2
 
         # self.redis_host = "10.20.20.108"

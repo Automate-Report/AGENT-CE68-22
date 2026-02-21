@@ -41,7 +41,8 @@ class BackendBridge:
             payload = {
                 "current_load": self.active_threads,
                 "status": "online",
-                "internal_ip": local_ip
+                "internal_ip": local_ip,
+                "hostname": settings.hostname,
             }
 
             response = requests.post(url, json=payload, headers=headers, timeout=10)

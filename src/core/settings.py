@@ -30,7 +30,7 @@ class Settings:
         
         self.worker_name = "XSS Worker"
         
-        self.access_key = "vZTxJ2OKyhR1c1VHTAZySvVzw-JK0k1iY5m4AaFWYPs"
+        self.access_key = "pfAxObTOCV5ddT4TR5-d7vsUOZnmEOGZ68EB6TRxmHc"
         self.poll_interval = 5
         self.hostname = socket.gethostname()
         self.maxThread = 2

@@ -27,7 +27,7 @@ class AuthManager:
             url = f"{settings.backend_url}{settings.verify_endpoint}"
 
             local_ip = self.get_internal_ip()
-
+            print(settings.access_key)
             payload = {
                 "worker_id": settings.worker_id,
                 "key": settings.access_key,

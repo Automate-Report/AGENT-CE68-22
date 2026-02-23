@@ -9,7 +9,7 @@ from src.exploits.sqli.scanner import SQLiScanner
 def send_to_backend(data, logger):
     """Helper function สำหรับส่งผลลัพธ์ไปที่ Backend"""
     try:
-        backend_url = "http://localhost:8000/pentest-logs/"
+        backend_url = "https://ce-backend.onikla.org/"
         res = requests.post(backend_url, json=data)
         if res.status_code == 201:
             logger.info("[+] Report sent to Backend successfully!")
@@ -28,7 +28,7 @@ def run_security_test():
     sqli_scanner = SQLiScanner()
 
     # Target URL ที่ต้องการทดสอบ
-    target_url = "http://testphp.vulnweb.com" 
+    target_url = "https://ce-backend.onikla.org/" 
     
     logger.info(f"[*] Starting Discovery on: {target_url}")
     

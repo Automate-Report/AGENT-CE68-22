@@ -4,7 +4,7 @@ import time
 
 # ตั้งค่าให้ตรงกับที่ Backend/Worker ใช้
 r = redis.Redis(host='127.0.0.1', port=5678, db=1)
-queue_name = "system:queue:work:2" # เปลี่ยนเลข ID ให้ตรงกับ settings ของคุณ
+queue_name = "system:queue:work:1" # เปลี่ยนเลข ID ให้ตรงกับ settings ของคุณ
 
 def send_test_jobs():
     print(f"📡 Sending test jobs to {queue_name}...")
@@ -12,7 +12,7 @@ def send_test_jobs():
     test_jobs = [
         # {"job_id": 1, "target_url": "http://localhost:4040/#/", "attack_type": "xss", "credential": None},
         # {"job_id": 2, "target_url": "http://localhost:3000/", "attack_type": "xss", "credentials": None},
-        {"job_id": 3, "target_url": "http://localhost:4050/vulnerabilities/sqli/", "attack_type": "sql_injection", "credentials": { "username": "admin", "password": "password"}},
+        {"job_id": 3, "target_url": "https://ce-backend.onikla.org/", "attack_type": "XSS", "credentials": None},
         # {"job_id": 2, "target_url": "http://localhost:4040/#/", "attack_type": "sql_injection", "credential": None},
     ]
 

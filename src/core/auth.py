@@ -43,6 +43,10 @@ class AuthManager:
                 data = response.json()
                 self.token = data.get("token")
                 return True
+            elif response.status_code == 403:
+                self.logger.error("[Auth] 403 Key Mismatch! Clearing invalid session...")
+                self.reset()
+                settings.reset()
             else:
                 try:
                     error_detail = response.json().get("detail", "No detail provided")

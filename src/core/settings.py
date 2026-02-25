@@ -94,6 +94,7 @@ class Settings:
                 
                 self.worker_id = data.get("WORKER_ID")
                 self.backend_url = data.get("BACKEND_URL")
+                self.maxThread = data.get("NUMBER_OF_THREADS", 1)
 
                 self.logger.debug(f"[Settings] Overlay Found: Worker {self.worker_id}")
             else:
@@ -134,7 +135,6 @@ class Settings:
         # 2. ถ้าไม่มี ให้ถาม User (Console Input)
         self.logger.info("[Settings] Security Check Required")
         self.logger.info("--------------------------")
-
 
         while not key:
             user_input = getpass.getpass(f"Enter Access Key for {self.worker_name}: ")

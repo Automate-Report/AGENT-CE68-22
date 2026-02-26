@@ -4,4 +4,4 @@ pyinstaller --onedir --name=SecurityWorker main.py exe + folder
 python -m nuitka --enable-plugin=anti-bloat --include-package=src main.py
 .venv\Scripts\Activate.ps1
 
-pyinstaller --onedir --name=SecurityWorker --add-data "data;data" main.py
+pyinstaller --onedir --name=SecurityWorker --add-data "./src/data;data" main.py

@@ -1,3 +1,5 @@
+from http.client import HTTPException
+
 import requests
 import socket
 from src.core.settings import settings
@@ -36,6 +38,7 @@ class AuthManager:
             }
 
             response = requests.post(url, json=payload, timeout=10) 
+            print(response)
 
 
             if response.status_code == 200:
@@ -47,6 +50,10 @@ class AuthManager:
                 self.logger.error("[Auth] 403 Key Mismatch! Clearing invalid session...")
                 self.reset()
                 settings.reset()
+            elif response.status_code == 420:
+                self.logger.error("Worker has no owner, please download worker again to bind with your account.")
+                self.reset()
+                settings.reset()
             else:
                 try:
                     error_detail = response.json().get("detail", "No detail provided")
@@ -54,6 +61,7 @@ class AuthManager:
                 except:
                     self.logger.error(f"[Auth] Verification Failed: {response.status_code}")
                 return False
+            
 
         except Exception as e:
             self.logger.error(f"[Auth] Critical Error during verification: {e}")

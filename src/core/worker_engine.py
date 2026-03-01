@@ -13,12 +13,9 @@ class WorkerEngine:
         self.auth = AuthManager()
         self.bridge = BackendBridge(self.auth)
 
-        self.pool = redis.ConnectionPool(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            db=settings.redis_db,
-            # password=settings.redis_password,
-            decode_responses=True # สำคัญ: เพื่อให้ได้ข้อมูลเป็น string ไม่ใช่ bytes
+        self.pool = redis.ConnectionPool.from_url(
+            url=settings.redis_url,
+            decode_responses=True
         )
 
         self.redis_client = redis.Redis(connection_pool=self.pool)

@@ -35,10 +35,8 @@ class Settings:
         self.hostname = socket.gethostname()
         self.maxThread = 2
 
-        # self.redis_host = "10.20.20.108"
-        self.redis_host = "127.0.0.1"
-        self.redis_port = 5678
-        self.redis_db = 1
+
+        self.redis_url = ""
 
         self.secure_store = EncryptedConfig("secret.dat")
 
@@ -95,6 +93,7 @@ class Settings:
                 self.worker_id = data.get("WORKER_ID")
                 self.backend_url = data.get("BACKEND_URL")
                 self.maxThread = data.get("NUMBER_OF_THREADS", 1)
+                self.redis_url = data.get("REDIS_URL")
 
                 self.logger.debug(f"[Settings] Overlay Found: Worker {self.worker_id}")
             else:

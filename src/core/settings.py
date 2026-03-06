@@ -36,7 +36,7 @@ class Settings:
         self.maxThread = 2
 
 
-        self.redis_url = ""
+        self.redis_url = "redis://10.60.1.214:5678/1"
 
         self.secure_store = EncryptedConfig("secret.dat")
 

@@ -1,6 +1,6 @@
 import io
 import logging
-import asyncio
+import json
 import requests
 from requests.exceptions import RequestException
 from urllib.parse import urlparse
@@ -246,27 +246,43 @@ class ScanOrchestrator:
                 return self._build_response("failed", 
                     error=f"Target Unreachable: {reachability_msg}")
             
+            self.logger.info("[+] Starting Public Discovery...")
+            public_targets = await self.crawler.crawl(self.target, max_depth=1)
+            
             # PHASE 2: Force Login
             auth_success = await self.force_login()
             if auth_success:
-                self.logger.info("[ScanEngine] Authentication successful!")
+                # --- PHASE 3: Authenticated Crawl ---
+                # เมื่อ Login สำเร็จแล้ว ให้ Crawler วิ่งอีกรอบเพื่อกวาด API ลับข้างใน
+                self.logger.info("[+] Starting Authenticated Discovery...")
+                # ส่งต่อ Session เข้าไปใน Crawler (เช่น Cookies/LocalStorage)
+                auth_targets = await self.crawler.crawl(self.target, max_depth=2)
+                
+                # รวมผลลัพธ์เข้าด้วยกัน (Deduplicator จะช่วยกรองตัวที่ซ้ำออกให้เอง)
+                all_targets = public_targets + auth_targets
             else:
-                self.logger.warning("[ScanEngine] Authentication failed, continuing with unauthenticated access...")
-            
-            # PHASE 3: Crawl
-            crawled_targets = await self.crawl_url()
+                all_targets = public_targets
             
             # PHASE 4: Attack
-            findings = await self.attack(crawled_targets)
+            if self.crawler.auth_handler.auth_token: # Token ที่ AuthHandler เก็บมา
+                token_data = json.loads(self.crawler.auth_handler.auth_token)
+                bearer = token_data.get('token')
+                if bearer:
+                    self.requester.set_header("Authorization", f"Bearer {bearer}")
+                    self.logger.info("[ScanEngine] 🔑 Bearer Token Injected for Phase 4")
+
+
+
+            findings = await self.attack(all_targets)
             
             # Build final response
             cleaned_urls = [normalize_url(t["url"]) if isinstance(t, dict) else normalize_url(str(t)) 
-                          for t in crawled_targets]
+                          for t in all_targets]
             
             return self._build_response(
                 "found" if findings else "not found",
                 findings=findings,
-                target_count=len(crawled_targets),
+                target_count=len(all_targets),
                 crawler_urls=cleaned_urls
             )
 

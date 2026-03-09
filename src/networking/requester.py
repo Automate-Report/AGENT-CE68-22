@@ -74,3 +74,13 @@ class Requester:
         except Exception as e:
             if self.logger:
                 self.logger.error(f"[Requester] ❌ Failed to set cookies: {e}")
+
+    def set_header(self, name, value):
+        """
+        ตั้งค่า Header ให้กับ Session เพื่อใช้ในทุก Request ต่อจากนี้
+        """
+        try:
+            self.session.headers.update({name: value})
+            self.logger.info(f"[Requester] 💉 Header set: {name}")
+        except Exception as e:
+            self.logger.error(f"[Requester] ❌ Failed to set header: {e}")

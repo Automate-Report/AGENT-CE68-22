@@ -104,6 +104,30 @@ class ScanOrchestrator:
                     await page.close()
                     return False
                 
+                password_exists = await page.locator('input[type="password"]').count() > 0
+    
+                if not password_exists:
+                    self.logger.info("🕵️ No login form on landing page, searching for entry...")
+                    # ลองเดา Path มาตรฐาน (Generic Guessing)
+                    common_login_paths = ["/login", "/signin", "/#/login", "/#/signin"]
+                    
+                    # ลองหาปุ่ม Login ในหน้าเว็บก่อน
+                    login_btn = page.locator('a:has-text("Login"), button:has-text("Login"), a:has-text("Sign in")').first
+                    if await login_btn.is_visible():
+                        await login_btn.click()
+                        await page.wait_for_load_state("networkidle")
+                    else:
+                        # ถ้าหาปุ่มไม่เจอ ให้ลองเติม Path เอง (Adaptive Navigation)
+                        base_url = self.target.rstrip('/')
+                        for path in common_login_paths:
+                            try:
+                                self.logger.info(f"Trying login path: {path}")
+                                await page.goto(f"{base_url}{path}", wait_until="networkidle", timeout=5000)
+                                if await page.locator('input[type="password"]').count() > 0:
+                                    self.logger.info(f"✅ Found login form at {page.url}")
+                                    break
+                            except: continue
+                
                 # Try authentication if credentials provided
                 login_success = False
                 if self.cred and isinstance(self.cred, dict):
@@ -201,12 +225,16 @@ class ScanOrchestrator:
         self.logger.info("=" * 60)
         self.logger.info("[PHASE 4] ATTACK / EXPLOITATION")
         self.logger.info("=" * 60)
-        
+
         findings = []
         
         if not targets:
             self.logger.warning("⚠️ No targets to attack")
             return findings
+        
+        unique_targets = list({t['url']: t for t in targets}.values())
+        self.logger.info(f"📊 Deduplication: {len(targets)} -> {len(unique_targets)} unique targets")
+        targets = unique_targets
         
         # Sync session state with scanners
         self._sync_session_to_scanners()

@@ -1,5 +1,6 @@
 import json
 import redis
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from src.core.auth import AuthManager
@@ -34,7 +35,7 @@ class WorkerEngine:
             self.logger.info(f"[Worker Engine][Job {job_id}] Processing...")
 
             orchestrator = ScanOrchestrator(job_data)
-            scan_result = orchestrator.run_workflow()
+            scan_result = asyncio.run(orchestrator.run_workflow())
 
             full_logs = scan_result.get("logs", "")
             self.logger.info(f"Job {job_id} generated {full_logs}")

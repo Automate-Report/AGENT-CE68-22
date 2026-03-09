@@ -45,7 +45,7 @@ class ScanOrchestrator:
         except RequestException as e:
             return False, f"Connection failed: {str(e)}"
 
-    def run_workflow(self):
+    async def run_workflow(self):
         try:
             # 1. Connectivity Check
             is_up, message = self._is_target_reachable(self.target)
@@ -54,7 +54,7 @@ class ScanOrchestrator:
 
             # 2. Discovery Phase (Crawling)
             self.logger.info(f"[ScanEngine] Starting Discovery on {self.target}...")
-            crawled_targets = self.crawler.crawl(self.target)
+            crawled_targets = await self.crawler.crawl(self.target)
             print(crawled_targets)
             
             # [MODIFIED] ทำความสะอาด URL ก่อนส่งกลับ

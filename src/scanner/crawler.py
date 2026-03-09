@@ -22,6 +22,7 @@ class Crawler:
         self.deduplicator = Deduplicator()
         self.interactor = InteractionEngine(self.logger)
         self.param_extractor = ParameterExtractor(self.logger)
+        self.auth_handler = AuthHandler(self.logger)
         self.collected_targets = []
         self.visited_urls = set()
         self.credential = cred
@@ -59,7 +60,7 @@ class Crawler:
     async def _process_url(self, url, depth, context, queue, base_domain):
         # 1. ย้ายการสร้าง LinkExtractor ไปไว้ใน __init__ จะดีกว่า 
         # แต่ถ้าจะสร้างตรงนี้ ควรตรวจสอบสะกดคำผิด (yputube -> youtube)
-        link_ext = LinkExtractor(base_domain, ["facebook.com", "google.com", "youtube.com", "linkedin.com"])
+        link_ext = LinkExtractor(base_domain, ["facebook.com", "google.com", "youtube.com", "linkedin.com", "github.com"])
 
         self.visited_urls.add(url)
         page = await context.new_page()
@@ -104,6 +105,8 @@ class Crawler:
             await page.close()
 
     def _intercept_network(self, request: Request, base_domain: str):
+        if "socket.io" in request.url:
+            return
         if urlparse(request.url).netloc != base_domain: return
         if any(x in request.url for x in [".jpg", ".png", ".css", ".woff2"]): return
 

@@ -196,8 +196,8 @@ class Crawler:
             self.collected_targets.append(target)
             
             # --- เพิ่มตรงนี้: เซฟลงไฟล์ทันทีป้องกันหาย ---
-            with open("raw_targets.json", "w") as f:
-                json.dump(self.collected_targets, f, indent=2)
+            # with open("raw_targets.json", "w") as f:
+            #     json.dump(self.collected_targets, f, indent=2)
                 
             self.logger.info(f"    [+] Target Saved: {method} {url}")
 

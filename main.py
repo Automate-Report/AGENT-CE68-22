@@ -17,16 +17,16 @@ from src.test import run_security_test
 
 def main():
 
-    # auth = AuthManager()
+    auth = AuthManager()
 
-    # client = BackendBridge(auth)
-    # client.start_heartbeat_loop()
+    client = BackendBridge(auth)
+    client.start_heartbeat_loop()
 
-    # WorkerEngine().start()
-    craw = Crawler()
+    WorkerEngine().start()
+    # craw = Crawler()
 
-    target = asyncio.run(craw.crawl("http://localhost:4040"))
-    print(json.dumps(target, indent=2))
+    # target = asyncio.run(craw.crawl("http://localhost:4040"))
+    # print(json.dumps(target, indent=2))
 
     # run_security_test()
 

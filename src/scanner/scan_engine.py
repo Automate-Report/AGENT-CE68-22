@@ -193,7 +193,7 @@ class ScanOrchestrator:
             return []
 
     # ===== PHASE 4: ATTACK & EXPLOIT =====
-    def attack(self, targets: list) -> list:
+    async def attack(self, targets: list) -> list:
         """
         Phase 4: Execute attacks (XSS and/or SQLi) on discovered endpoints
         Returns: list of findings
@@ -214,16 +214,16 @@ class ScanOrchestrator:
         # Execute attack based on type
         if self.attack_type == "sql_injection":
             self.logger.info(f"🔓 Running SQL Injection scans on {len(targets)} endpoints...")
-            findings = self._run_sqli_scan(targets)
+            findings = await self._run_sqli_scan(targets)
             
         elif self.attack_type == "xss" or self.attack_type == "XSS":
             self.logger.info(f"💉 Running XSS scans on {len(targets)} endpoints...")
-            findings = self._run_xss_scan(targets)
+            findings = await self._run_xss_scan(targets)
             
         elif self.attack_type == "all":
             self.logger.info(f"🎯 Running ALL scans on {len(targets)} endpoints...")
-            findings.extend(self._run_xss_scan(targets))
-            findings.extend(self._run_sqli_scan(targets))
+            findings.extend(await self._run_xss_scan(targets))
+            findings.extend(await self._run_sqli_scan(targets))
         else:
             self.logger.warning(f"⚠️ Unknown attack type: {self.attack_type}")
         
@@ -257,7 +257,7 @@ class ScanOrchestrator:
             crawled_targets = await self.crawl_url()
             
             # PHASE 4: Attack
-            findings = self.attack(crawled_targets)
+            findings = await self.attack(crawled_targets)
             
             # Build final response
             cleaned_urls = [normalize_url(t["url"]) if isinstance(t, dict) else normalize_url(str(t)) 
@@ -323,7 +323,7 @@ class ScanOrchestrator:
             self.logger.removeHandler(self.capture_handler)
             self.capture_handler.close()
 
-    def _run_xss_scan(self, targets: list) -> list:
+    async def _run_xss_scan(self, targets: list) -> list:
         """Execute XSS scanning on targets"""
         findings = []
         for i, t in enumerate(targets, 1):
@@ -342,17 +342,18 @@ class ScanOrchestrator:
                 findings.extend(self.reflected_scanner.scan(url, params, method, c_type))
                 
                 # DOM XSS (for non-API endpoints)
-                if not is_api:
-                    self.logger.debug(f"  └─ Testing DOM XSS...")
-                    self.dom_scanner.auth_info = self.session_state["auth_info"]
-                    findings.extend(self.dom_scanner.scan(url, params, method))
+                # if not is_api:
+                #     self.logger.debug(f"  └─ Testing DOM XSS...")
+                #     self.dom_scanner.auth_info = self.session_state["auth_info"]
+                #     dom_findings = await self.dom_scanner.scan(url, params, method)
+                #     findings.extend(dom_findings)
                     
             except Exception as e:
                 self.logger.warning(f"  └─ Error scanning {url}: {str(e)}")
         
         return findings
 
-    def _run_sqli_scan(self, targets: list) -> list:
+    async def _run_sqli_scan(self, targets: list) -> list:
         """Execute SQL Injection scanning on targets"""
         findings = []
         for i, t in enumerate(targets, 1):

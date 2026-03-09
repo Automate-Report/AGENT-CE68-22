@@ -3,6 +3,7 @@ import json
 import re
 from playwright.async_api import async_playwright, Request, Response
 from urllib.parse import urlparse, urljoin,  parse_qs, unquote
+from contextlib import asynccontextmanager
 
 from src.scanner.deduplicator import Deduplicator
 from src.scanner.interaction import InteractionEngine
@@ -30,6 +31,14 @@ class Crawler:
         self.semaphore = asyncio.Semaphore(5)
 
     # --- Core Crawl Method ---
+    @asynccontextmanager
+    async def get_browser_context(self):
+        """Helper สำหรับให้ Orchestrator ยืม Browser ไปใช้ Login"""
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=False)
+            context = await browser.new_context(ignore_https_errors=True)
+            yield context
+            await browser.close()
 
     async def crawl(self, start_url: str, max_depth: int = 2):
         self.logger.info(f"🚀 Starting Async Crawl: {start_url}")

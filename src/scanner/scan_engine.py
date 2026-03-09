@@ -47,22 +47,48 @@ class ScanOrchestrator:
 
     async def run_workflow(self):
         try:
-            # 1. Connectivity Check
+            # Connectivity Check
             is_up, message = self._is_target_reachable(self.target)
             if not is_up:
                 return self._build_response("failed", error=f"Target Unreachable: {message}")
+            
+            # Login First
+            self.logger.info(f"[ScanEngine] Pre-authentication phase on {self.target}")
+            # สร้าง Temporary Page เพื่อทำการ Login
+            # หมายเหตุ: Crawler ของคุณควรมี method สำหรับเข้าถึง Browser Context ได้
+            async with self.crawler.get_browser_context() as context:
+                page = await context.new_page()
+                await page.goto(self.target, wait_until="networkidle")
+                
+                # เรียกใช้ AuthHandler ที่เราเตรียมไว้
+                # ถ้ามี credential ให้ใช้ heuristic login ถ้าไม่มีให้ลอง aggressive (SQLi Bypass)
+                success = False
+                if self.cred:
+                    success = await self.crawler.auth_handler.find_and_login(page, self.cred)
+                
+                if not success:
+                    self.logger.info("[ScanEngine] No valid creds or login failed. Trying aggressive entry...")
+                    success = await self.crawler.auth_handler.aggressive_entry(page)
+                
+                if success:
+                    self.logger.info("[ScanEngine] Login successful! Session captured.")
+                else:
+                    self.logger.warning("[ScanEngine] Could not authenticate. Discovery will be limited.")
+                
+                await page.close()
 
-            # 2. Discovery Phase (Crawling)
+            # Crawling
             self.logger.info(f"[ScanEngine] Starting Discovery on {self.target}...")
             crawled_targets = await self.crawler.crawl(self.target)
             print(crawled_targets)
-            
+
             # [MODIFIED] ทำความสะอาด URL ก่อนส่งกลับ
             cleaned_urls = [normalize_url(t["url"]) for t in crawled_targets]
             self.logger.info(f"[ScanEngine] Discovery finished. Unique targets found: {len(crawled_targets)}")
 
             # 3. Session Persistence (สำคัญมาก!)
             # ดึงข้อมูลจาก AuthHandler เพื่อส่งต่อให้ Scanner
+
             auth_info = {
                 "cookies": self.crawler.auth_handler.cookies,
                 "auth_storage": getattr(self.crawler.auth_handler, 'auth_storage', None)

@@ -20,8 +20,13 @@ class LinkExtractor:
             Array.from(document.querySelectorAll('[routerlink], [navlink]'))
                  .map(el => el.getAttribute('routerlink') || el.getAttribute('navlink'))
         """)
+        more_links = await page.evaluate("""() => {
+            return Array.from(document.querySelectorAll('button, mat-list-item, a'))
+                .map(el => el.getAttribute('routerlink') || el.getAttribute('href'))
+                .filter(path => path && path.length > 1);
+        }""")
 
-        all_paths = set(hrefs + router_links)
+        all_paths = set(hrefs + router_links + more_links)
 
         for path in all_paths:
             if not path or path.startswith(("javascript:", "mailto:", "tel:", "#")):

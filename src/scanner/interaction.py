@@ -6,22 +6,22 @@ class InteractionEngine:
         self.logger = logger or setup_logger("Crawler")
 
     async def trigger_smart_interaction(self, page: Page):
-        # 1. กรอกข้อมูลทุกช่องที่เจอด้วย "XSS Payload" เบื้องต้น (ตามที่คุณต้องการ)
-        inputs = await page.locator("input:visible, textarea:visible").all()
-        for inp in inputs:
+        # ค้นหาปุ่มที่น่าจะเป็นปุ่มเมนูหรือปุ่มเปิด Sidebar
+        buttons = await page.locator("button:visible, [role='button']:visible").all()
+        
+        for btn in buttons[:10]:
             try:
-                # ข้ามปุ่มและช่องที่ถูกล็อก
-                if await inp.is_editable():
-                    await inp.fill("<script>alert('pentest')</script>")
-            except: continue
-
-        # 2. กดปุ่ม (ข้ามปุ่ม Logout)
-        buttons = await page.locator("button:visible, a.mat-menu-item").all()
-        for btn in buttons[:15]: # เพิ่มจำนวนการคลิกให้มากขึ้น
-            try:
-                inner_html = await btn.inner_html()
-                if any(x in inner_html.lower() for x in ["logout", "signout", "exit"]): continue
+                text = (await btn.inner_text()).lower()
+                # ถ้ามีคำพวกนี้ ห้ามกดบ่อยๆ เพราะจะทำให้ Sidebar เด้งไปมา
+                if any(x in text for x in ["menu", "navigation", "side", "hamburger"]):
+                    continue
                 
-                await btn.click(timeout=2000)
-                await page.wait_for_timeout(1000) # รอให้เกิด API Call
-            except: continue
+                # ถ้าปุ่มเปิด Sidebar อยู่แล้ว ให้ข้ามไป
+                is_expanded = await btn.get_attribute("aria-expanded")
+                if is_expanded == "true":
+                    continue
+
+                await btn.click(timeout=1500)
+                await page.wait_for_timeout(800)
+            except:
+                continue

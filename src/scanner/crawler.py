@@ -29,7 +29,7 @@ class Crawler:
         self.visited_urls = set()
         self.credential = cred
         self.is_authenticated = False
-        self.semaphore = asyncio.Semaphore(5)
+        self.semaphore = asyncio.Semaphore(2)
 
     # --- Core Crawl Method ---
     @asynccontextmanager
@@ -58,11 +58,15 @@ class Crawler:
                     queue.task_done()
                     continue
 
-                # จำกัดจำนวน concurrency ด้วย semaphore
-                async with self.semaphore:
-                    await self._process_url(current_url, depth, context, queue, base_domain)
-                
-                queue.task_done()
+                try:
+                    async with self.semaphore:
+                        await self._process_url(current_url, depth, context, queue, base_domain, max_depth)
+                except Exception as e:
+                    self.logger.error(f"Critical error processing {current_url}: {e}")
+                finally:
+                    queue.task_done()
+                    # ใส่ delay เล็กน้อยเพื่อไม่ให้เครื่องค้าง
+                    await asyncio.sleep(0.5)
 
             await browser.close()
         return self.collected_targets
@@ -103,8 +107,12 @@ class Crawler:
             if depth < max_depth:
                 links = await self.link_extractor.extract(page, url)
                 for link in links:
-                    if link not in self.visited_urls:
-                        await queue.put((link, depth + 1))
+                    # Normalize ลิงก์เบื้องต้น (เช่น ตัด / ท้ายสุดออก)
+                    normalized_link = link.rstrip('/')
+                    if normalized_link not in self.visited_urls:
+                        # สำคัญ: ต้อง add ทันทีเพื่อไม่ให้ Queue รับงานซ้ำ
+                        self.visited_urls.add(normalized_link) 
+                        await queue.put((normalized_link, depth + 1))
 
         except Exception as e:
             # เก็บ Log error ให้ละเอียดขึ้นเล็กน้อยเพื่อการ Debug
@@ -167,15 +175,15 @@ class Crawler:
         return links_found
 
     def _save_target(self, url, params, method, c_type):
-        clean_url = url.split('?')[0]
-        if not self.deduplicator.is_seen(method, clean_url, params):
+        # ไม่ต้อง split('?')[0] ตรงนี้ เพราะ Deduplicator ของเรารองรับการจัดการ URL เองแล้ว
+        if not self.deduplicator.is_seen(method, url, params):
             target = {
-                "url": clean_url,
+                "url": url.split('?')[0], # เก็บลงรายงานแบบสะอาด
                 "method": method,
                 "params": params,
                 "content_type": c_type
             }
             self.collected_targets.append(target)
-            self.logger.info(f"    [+] Target Discovered: {method} {clean_url}")
+            self.logger.info(f"    [+] Target Discovered: {method} {url}")
 
 

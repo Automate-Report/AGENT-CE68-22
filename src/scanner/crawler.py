@@ -18,11 +18,12 @@ from src.utils.url_helper import is_static_resource, normalize_url
 
 
 class Crawler:
-    def __init__(self, cred: dict, logger=None):
+    def __init__(self, cred: dict = None, logger=None):
         self.logger = logger or setup_logger("Crawler")
         self.deduplicator = Deduplicator()
         self.interactor = InteractionEngine(self.logger)
         self.param_extractor = ParameterExtractor(self.logger)
+        self.link_extractor = LinkExtractor("", []) 
         self.auth_handler = AuthHandler(self.logger)
         self.collected_targets = []
         self.visited_urls = set()
@@ -66,44 +67,43 @@ class Crawler:
             await browser.close()
         return self.collected_targets
 
-    async def _process_url(self, url, depth, context, queue, base_domain):
-        # 1. ย้ายการสร้าง LinkExtractor ไปไว้ใน __init__ จะดีกว่า 
-        # แต่ถ้าจะสร้างตรงนี้ ควรตรวจสอบสะกดคำผิด (yputube -> youtube)
-        link_ext = LinkExtractor(base_domain, ["facebook.com", "google.com", "youtube.com", "linkedin.com", "github.com"])
+    async def _process_url(self, url, depth, context, queue, base_domain, max_depth=2):
+        self.link_extractor.base_domain = base_domain
+        self.link_extractor.blacklist = [base_domain, "facebook.com", "twitter.com", "youtube.com", "github.com"] # ป้องกันการออกนอกโดเมน
 
-        self.visited_urls.add(url)
         page = await context.new_page()
-        
-        # ดักจับ Network และ PII (ใช้ lambda เพื่อส่ง base_domain เข้าไป)
         page.on("request", lambda req: self._intercept_network(req, base_domain))
-        page.on("response", lambda res: self._intercept_response(res))
-
+        
         try:
-            self.logger.info(f"[*] Visiting: {url} (Depth: {depth})")
-            
-            # ปรับ wait_until เป็น domcontentloaded เพื่อความเร็ว 
-            # และใช้ networkidle สั้นๆ ใน trigger_smart_interaction แทน
-            await page.goto(url, wait_until="domcontentloaded", timeout=25000)
-            
-            # เพิ่ม safe wait สั้นๆ เผื่อกรณีเว็บเป็น SPA ที่โหลด component ช้า
-            await page.wait_for_timeout(1000)
+            self.logger.info(f"[*] Visiting: {url}")
+            # ใช้ networkidle เพื่อให้แน่ใจว่า SPA โหลด Component เสร็จ
+            await page.goto(url, wait_until="networkidle", timeout=30000)
 
-            # 1. Extract Parameters โดยใช้ Module ที่แยกออกมา
-            # แทนที่ self._extract_params(page) เดิม
+            # --- ส่วนที่เพิ่ม: กำจัด Welcome Banner ของ Juice Shop ---
+            try:
+                # รอให้ปุ่มปิดโผล่มา (ใช้ Selector ที่ครอบคลุม)
+                welcome_btn = page.locator("button[aria-label='Close Welcome Banner'], button:has-text('Dismiss')")
+                if await welcome_btn.is_visible():
+                    await welcome_btn.click()
+                
+                # ปิด Cookie Consent ด้วย
+                cookie_btn = page.locator(".cc-dismiss, button:has-text('Got it!')")
+                if await cookie_btn.is_visible():
+                    await cookie_btn.click()
+            except: pass 
+
+            # 1. Extract Params & Save (ทำก่อน Interaction)
             params = await self.param_extractor.extract_from_dom(page)
-            if params:
-                self._save_target(url, params, "GET", "form")
+            self._save_target(url, params, "GET", "form")
 
-            # 2. กระตุ้น API Call (ส่วนนี้จะทำให้เกิด Network traffic ที่ _intercept_network ดักได้)
+            # 2. Trigger Interaction (คลิกปุ่มต่างๆ เพื่อหา API)
             await self.interactor.trigger_smart_interaction(page)
 
-            # 3. ค้นหา Link ใหม่ๆ โดยใช้ Module ที่แยกออกมา
-            if depth < 2:
-                # แทนที่ self._extract_links(page, url, base_domain) เดิม
-                links = await link_ext.extract(page, url)
+            # 3. Extract Links สำหรับหน้าถัดไป
+            if depth < max_depth:
+                links = await self.link_extractor.extract(page, url)
                 for link in links:
                     if link not in self.visited_urls:
-                        # ใช้ await queue.put เพื่อป้องกันคิวค้างในระบบ async
                         await queue.put((link, depth + 1))
 
         except Exception as e:
@@ -177,3 +177,5 @@ class Crawler:
             }
             self.collected_targets.append(target)
             self.logger.info(f"    [+] Target Discovered: {method} {clean_url}")
+
+

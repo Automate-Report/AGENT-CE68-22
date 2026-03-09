@@ -6,26 +6,22 @@ class InteractionEngine:
         self.logger = logger or setup_logger("Crawler")
 
     async def trigger_smart_interaction(self, page: Page):
-        self.logger.info("    [..] Triggering smart interactions...")
-        
-        # 1. Fill visible inputs
+        # 1. กรอกข้อมูลทุกช่องที่เจอด้วย "XSS Payload" เบื้องต้น (ตามที่คุณต้องการ)
         inputs = await page.locator("input:visible, textarea:visible").all()
-        for i, inp in enumerate(inputs[:10]):
+        for inp in inputs:
             try:
-                i_type = await inp.get_attribute("type") or ""
-                if i_type in ["password", "submit", "button"]: continue
-                await inp.fill(f"test_data_{i}")
+                # ข้ามปุ่มและช่องที่ถูกล็อก
+                if await inp.is_editable():
+                    await inp.fill("<script>alert('pentest')</script>")
             except: continue
 
-        # 2. Click buttons (Avoid Logout)
-        buttons = await page.locator("button:visible, [role='button']:visible").all()
-        for btn in buttons[:5]:
+        # 2. กดปุ่ม (ข้ามปุ่ม Logout)
+        buttons = await page.locator("button:visible, a.mat-menu-item").all()
+        for btn in buttons[:15]: # เพิ่มจำนวนการคลิกให้มากขึ้น
             try:
-                text = (await btn.inner_text()).lower()
-                # Blacklist keywords สำหรับปุ่มที่ห้ามกด
-                if any(x in text for x in ["logout", "signout", "exit", "ออกจากระบบ", "delete"]): 
-                    continue
+                inner_html = await btn.inner_html()
+                if any(x in inner_html.lower() for x in ["logout", "signout", "exit"]): continue
                 
-                await btn.click(timeout=1000)
-                await page.wait_for_timeout(500) # รอ network ทำงานสั้นๆ
+                await btn.click(timeout=2000)
+                await page.wait_for_timeout(1000) # รอให้เกิด API Call
             except: continue

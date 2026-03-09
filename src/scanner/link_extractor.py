@@ -9,36 +9,34 @@ class LinkExtractor:
     async def extract(self, page: Page, current_url: str) -> set:
         links_found = set()
         
-        # 1. ดึงจาก <a> tags (Standard HTML)
-        hrefs = await page.evaluate("""() => 
-            Array.from(document.querySelectorAll('a[href]'))
-                 .map(a => a.getAttribute('href'))
-        """)
+        # ดึงทุกลิงก์และทุกอย่างที่ดูเหมือนจะคลิกแล้วเปลี่ยนหน้าได้
+        script = """() => {
+            const results = [];
+            // 1. มาตรฐาน <a>
+            document.querySelectorAll('a[href]').forEach(el => results.push(el.getAttribute('href')));
+            // 2. SPA Specific (Angular/Vue/React)
+            document.querySelectorAll('[routerlink], [navlink], [ng-reflect-router-link]').forEach(el => {
+                results.push(el.getAttribute('routerlink') || el.getAttribute('ng-reflect-router-link'));
+            });
+            return results;
+        }"""
         
-        # 2. ดึงจาก Router Links (SPA เช่น Angular/Vue)
-        router_links = await page.evaluate("""() => 
-            Array.from(document.querySelectorAll('[routerlink], [navlink]'))
-                 .map(el => el.getAttribute('routerlink') || el.getAttribute('navlink'))
-        """)
-        more_links = await page.evaluate("""() => {
-            return Array.from(document.querySelectorAll('button, mat-list-item, a'))
-                .map(el => el.getAttribute('routerlink') || el.getAttribute('href'))
-                .filter(path => path && path.length > 1);
-        }""")
+        raw_paths = await page.evaluate(script)
+        base_parsed = urlparse(current_url)
 
-        all_paths = set(hrefs + router_links + more_links)
-
-        for path in all_paths:
-            if not path or path.startswith(("javascript:", "mailto:", "tel:", "#")):
-                continue
-                
-            full_url = urljoin(current_url, path)
-            parsed = urlparse(full_url)
+        for path in raw_paths:
+            if not path or path.startswith(("javascript:", "mailto:", "tel:")): continue
             
-            # กรองให้เอาเฉพาะ Domain เดียวกันและไม่อยู่ใน Blacklist
-            if parsed.netloc == self.base_domain:
-                if not any(d in full_url for d in self.blacklist):
-                    # ลบ fragment (#) ออกเพื่อให้ URL สะอาด
-                    links_found.add(full_url.split('#')[0].rstrip('/'))
+            # ถ้าเป็น SPA Route (เช่น /search หรือ search) ให้แปลงเป็น /#/search
+            if not path.startswith(("http", "#")):
+                full_url = f"{base_parsed.scheme}://{base_parsed.netloc}/#/{path.lstrip('/')}"
+            else:
+                full_url = urljoin(current_url, path)
+
+            # กรองเอาเฉพาะ Domain เดียวกัน
+            parsed_full = urlparse(full_url)
+            if parsed_full.netloc == self.base_domain:
+                # เก็บแบบ Clean URL (ตัดส่วนเกินท้ายออก)
+                links_found.add(full_url.split('?')[0].rstrip('/'))
                     
         return links_found

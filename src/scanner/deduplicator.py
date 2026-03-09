@@ -9,7 +9,7 @@ class Deduplicator:
     def is_seen(self, method: str, url: str, params: dict) -> bool:
         parsed = urlparse(url)
         # Normalize: ตัด / ตัวสุดท้ายออก และทำให้เป็นตัวเล็กทั้งหมด
-        path = parsed.path.rstrip('/').lower()
+        path = parsed.path.rstrip('/')
         if not path: path = "/"
         
         # จัดการ Fragment (Routing ของ SPA)

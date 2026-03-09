@@ -71,48 +71,31 @@ class Crawler:
             await browser.close()
         return self.collected_targets
 
-    async def _process_url(self, url, depth, context, queue, base_domain, max_depth=2):
-        self.link_extractor.base_domain = base_domain
-        self.link_extractor.blacklist = [base_domain, "facebook.com", "twitter.com", "youtube.com", "github.com"] # ป้องกันการออกนอกโดเมน
-
+    async def _process_url(self, url, depth, context, queue, base_domain, max_depth):
         page = await context.new_page()
+        # Intercept API calls เหมือนเดิม
         page.on("request", lambda req: self._intercept_network(req, base_domain))
         
         try:
-            self.logger.info(f"[*] Visiting: {url}")
-            # ใช้ networkidle เพื่อให้แน่ใจว่า SPA โหลด Component เสร็จ
+            # 1. Navigation
             await page.goto(url, wait_until="networkidle", timeout=30000)
+            await page.wait_for_timeout(2000) # รอให้ SPA นิ่งจริงๆ
 
-            # --- ส่วนที่เพิ่ม: กำจัด Welcome Banner ของ Juice Shop ---
-            try:
-                # รอให้ปุ่มปิดโผล่มา (ใช้ Selector ที่ครอบคลุม)
-                welcome_btn = page.locator("button[aria-label='Close Welcome Banner'], button:has-text('Dismiss')")
-                if await welcome_btn.is_visible():
-                    await welcome_btn.click()
-                
-                # ปิด Cookie Consent ด้วย
-                cookie_btn = page.locator(".cc-dismiss, button:has-text('Got it!')")
-                if await cookie_btn.is_visible():
-                    await cookie_btn.click()
-            except: pass 
+            # 2. Interact (ใช้ InteractionEngine ที่เราปรับใหม่)
+            await self.interactor.trigger_smart_interaction(page)
 
-            # 1. Extract Params & Save (ทำก่อน Interaction)
+            # 3. Parameter Extraction
             params = await self.param_extractor.extract_from_dom(page)
             self._save_target(url, params, "GET", "form")
 
-            # 2. Trigger Interaction (คลิกปุ่มต่างๆ เพื่อหา API)
-            await self.interactor.trigger_smart_interaction(page)
-
-            # 3. Extract Links สำหรับหน้าถัดไป
+            # 4. Universal Link Extraction
             if depth < max_depth:
                 links = await self.link_extractor.extract(page, url)
                 for link in links:
-                    # Normalize ลิงก์เบื้องต้น (เช่น ตัด / ท้ายสุดออก)
-                    normalized_link = link.rstrip('/')
-                    if normalized_link not in self.visited_urls:
-                        # สำคัญ: ต้อง add ทันทีเพื่อไม่ให้ Queue รับงานซ้ำ
-                        self.visited_urls.add(normalized_link) 
-                        await queue.put((normalized_link, depth + 1))
+                    normalized = link.rstrip('/')
+                    if normalized not in self.visited_urls:
+                        self.visited_urls.add(normalized) # Mark ทันที!
+                        await queue.put((normalized, depth + 1))
 
         except Exception as e:
             # เก็บ Log error ให้ละเอียดขึ้นเล็กน้อยเพื่อการ Debug
@@ -122,27 +105,34 @@ class Crawler:
             await page.close()
 
     def _intercept_network(self, request: Request, base_domain: str):
-        if "socket.io" in request.url:
+        url = request.url
+        # 1. ข้ามสิ่งที่ไม่สนใจ
+        if any(x in url for x in ["socket.io", ".jpg", ".png", ".css", ".woff2", "maps.googleapis.com"]):
             return
-        if urlparse(request.url).netloc != base_domain: return
-        if any(x in request.url for x in [".jpg", ".png", ".css", ".woff2"]): return
 
-        if request.resource_type in ["fetch", "xhr"]:
-            method = request.method.upper()
-            params = {}
-            
-            # ดัก Query Params
-            qs = parse_qs(urlparse(request.url).query)
-            params.update({k: v[0] for k, v in qs.items()})
+        # 2. แก้ไขการเช็คโดเมน: ให้เช็คแค่ว่า "มี" base_domain อยู่ใน url หรือเป็น internal path
+        # และต้องดักจับ API ของ Juice Shop (มักเริ่มด้วย /api หรือ /rest)
+        is_internal = base_domain in url
+        is_api = "/api/" in url or "/rest/" in url
 
-            # ดัก POST Body
-            if request.post_data:
-                try:
-                    params.update(json.loads(request.post_data))
-                except: pass
+        if is_internal or is_api:
+            if request.resource_type in ["fetch", "xhr"]:
+                method = request.method.upper()
+                params = {}
+                
+                # ดัก Query Params
+                parsed_url = urlparse(url)
+                qs = parse_qs(parsed_url.query)
+                params.update({k: v[0] for k, v in qs.items()})
 
-            if params or method != "GET":
-                self._save_target(request.url, params, method, "json")
+                # ดัก POST Body
+                if request.post_data:
+                    try:
+                        params.update(json.loads(request.post_data))
+                    except: pass
+
+                # บันทึกเป้าหมาย
+                self._save_target(url, params, method, "json")
 
     async def _intercept_response(self, response: Response):
         if self.deduplicator.is_pii_reported(response.url): return
@@ -176,7 +166,22 @@ class Crawler:
 
     def _save_target(self, url, params, method, c_type):
         # ไม่ต้อง split('?')[0] ตรงนี้ เพราะ Deduplicator ของเรารองรับการจัดการ URL เองแล้ว
-        if not self.deduplicator.is_seen(method, url, params):
+        parsed = urlparse(url)
+        clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        
+        # 1. ดึงพารามิเตอร์จาก Query String มารวมกับ params ที่มีอยู่
+        query_params = parse_qs(parsed.query)
+        for k, v in query_params.items():
+            if k not in params:
+                params[k] = v[0] # เก็บค่าตัวอย่างไว้ดู
+
+        # 2. Logic พิเศษ: ถ้า URL มีเลข (เช่น /products/1/) ให้เดาว่าเป็น Path Parameter (IDOR)
+        path_parts = parsed.path.split('/')
+        for i, part in enumerate(path_parts):
+            if part.isdigit():
+                params[f"path_id_{i}"] = part
+
+        if not self.deduplicator.is_seen(method, clean_url, params):
             target = {
                 "url": url.split('?')[0], # เก็บลงรายงานแบบสะอาด
                 "method": method,

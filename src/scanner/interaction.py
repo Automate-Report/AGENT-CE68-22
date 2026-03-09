@@ -5,23 +5,34 @@ class InteractionEngine:
     def __init__(self, logger):
         self.logger = logger or setup_logger("Crawler")
 
+    # ใน InteractionEngine.py
     async def trigger_smart_interaction(self, page: Page):
-        # ค้นหาปุ่มที่น่าจะเป็นปุ่มเมนูหรือปุ่มเปิด Sidebar
-        buttons = await page.locator("button:visible, [role='button']:visible").all()
-        
-        for btn in buttons[:10]:
-            try:
-                text = (await btn.inner_text()).lower()
-                # ถ้ามีคำพวกนี้ ห้ามกดบ่อยๆ เพราะจะทำให้ Sidebar เด้งไปมา
-                if any(x in text for x in ["menu", "navigation", "side", "hamburger"]):
-                    continue
-                
-                # ถ้าปุ่มเปิด Sidebar อยู่แล้ว ให้ข้ามไป
-                is_expanded = await btn.get_attribute("aria-expanded")
-                if is_expanded == "true":
-                    continue
+        self.logger.info("    [..] Executing behavioral exploration...")
 
-                await btn.click(timeout=1500)
-                await page.wait_for_timeout(800)
-            except:
-                continue
+        # 1. Clear Obstacles (Generic Modal/Banner Closer)
+        # มองหาปุ่มที่มีคำจำพวก "ปิด" หรือ "ยอมรับ"
+        obstacles = page.locator("button:has-text('Close'), button:has-text('Dismiss'), button:has-text('Accept'), button:has-text('Got it')")
+        try:
+            for i in range(await obstacles.count()):
+                if await obstacles.nth(i).is_visible():
+                    await obstacles.nth(i).click(timeout=1000)
+        except: pass
+
+        # 2. Universal Scroll (เพื่อกระตุ้น Lazy Loading API)
+        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        await page.wait_for_timeout(1000)
+
+        # 3. Generic Clicking (ลองคลิกสิ่งที่น่าจะคลิกได้)
+        clickable_selectors = "button:visible, a:visible, [role='button']:visible, .mat-card:visible, .card:visible"
+        elements = await page.locator(clickable_selectors).all()
+        
+        for el in elements[:10]: # จำกัดที่ 10 เพื่อไม่ให้ค้าง
+            try:
+                text = (await el.inner_text()).lower()
+                # Generic Blacklist: ป้องกันการ Logout
+                if any(x in text for x in ["log", "sign", "exit", "out"]): continue
+                
+                await el.click(timeout=1500)
+                await page.wait_for_timeout(1000) # รอ Network ทำงาน
+                await page.keyboard.press("Escape") # เคลียร์เผื่อมีอะไรเด้งมาบัง
+            except: continue

@@ -24,7 +24,7 @@ def main():
     # WorkerEngine().start()
     craw = Crawler()
 
-    target = asyncio.run(craw.crawl("http://localhost:4050"))
+    target = asyncio.run(craw.crawl("http://localhost:4040"))
     print(json.dumps(target, indent=2))
 
     # run_security_test()

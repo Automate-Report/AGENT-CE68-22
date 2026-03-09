@@ -1,0 +1,84 @@
+[
+  {
+    "url": "http://localhost:4040/assets/i18n/en.json",
+    "method": "GET",
+    "params": {},
+    "content_type": "json"
+  },
+  {
+    "url": "http://localhost:4040/rest/admin/application-version",
+    "method": "GET",
+    "params": {},
+    "content_type": "json"
+  },
+  {
+    "url": "http://localhost:4040/rest/admin/application-configuration",
+    "method": "GET",
+    "params": {},
+    "content_type": "json"
+  },
+  {
+    "url": "http://localhost:4040/api/Challenges/?name=Score%20Board",
+    "method": "GET",
+    "params": {
+      "name": "Score Board"
+    },
+    "content_type": "json"
+  },
+  {
+    "url": "http://localhost:4040/rest/languages",
+    "method": "GET",
+    "params": {},
+    "content_type": "json"
+  },
+  {
+    "url": "http://localhost:4040/api/Quantitys/",
+    "method": "GET",
+    "params": {},
+    "content_type": "json"
+  },
+  {
+    "url": "http://localhost:4040/rest/products/search?q=",
+    "method": "GET",
+    "params": {
+      "q": ""
+    },
+    "content_type": "json"
+  },
+  {
+    "url": "http://localhost:4040/rest/user/whoami",
+    "method": "GET",
+    "params": {},
+    "content_type": "json"
+  },
+  {
+    "url": "http://localhost:4040/rest/products/24/reviews",
+    "method": "GET",
+    "params": {
+      "path_id_3": "24"
+    },
+    "content_type": "json"
+  },
+  {
+    "url": "http://localhost:4040/rest/products/42/reviews",
+    "method": "GET",
+    "params": {
+      "path_id_3": "42"
+    },
+    "content_type": "json"
+  },
+  {
+    "url": "http://localhost:4040/rest/products/3/reviews",
+    "method": "GET",
+    "params": {
+      "path_id_3": "3"
+    },
+    "content_type": "json"
+  },
+  {
+    "url": "http://localhost:4040",
+    "method": "GET",
+    "params": {},
+    "content_type": "form"
+  }
+]

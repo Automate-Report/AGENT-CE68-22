@@ -106,12 +106,11 @@ class Crawler:
 
     def _intercept_network(self, request: Request, base_domain: str):
         url = request.url
-        # 1. ข้ามสิ่งที่ไม่สนใจ
+        # 1. ข้ามสิ่งที่ไม่สนใจ (Static Files)
         if any(x in url for x in ["socket.io", ".jpg", ".png", ".css", ".woff2", "maps.googleapis.com"]):
             return
 
-        # 2. แก้ไขการเช็คโดเมน: ให้เช็คแค่ว่า "มี" base_domain อยู่ใน url หรือเป็น internal path
-        # และต้องดักจับ API ของ Juice Shop (มักเริ่มด้วย /api หรือ /rest)
+        # 2. เช็คว่าเป็น Internal Domain หรือ API Path หรือไม่
         is_internal = base_domain in url
         is_api = "/api/" in url or "/rest/" in url
 
@@ -120,18 +119,23 @@ class Crawler:
                 method = request.method.upper()
                 params = {}
                 
-                # ดัก Query Params
+                # --- จุดที่ต้องแก้ไข: ดัก Query Params แบบ Generic ---
                 parsed_url = urlparse(url)
-                qs = parse_qs(parsed_url.query)
+                # เพิ่ม keep_blank_values=True เพื่อดักจับพารามิเตอร์ทุกตัวแม้ไม่มีค่า (เช่น ?q=)
+                qs = parse_qs(parsed_url.query, keep_blank_values=True)
+                
+                # อัปเดตพารามิเตอร์เข้า dict (เอาเฉพาะค่าแรกที่พบ)
                 params.update({k: v[0] for k, v in qs.items()})
+                # ------------------------------------------------
 
-                # ดัก POST Body
+                # ดัก POST Body (JSON)
                 if request.post_data:
                     try:
                         params.update(json.loads(request.post_data))
-                    except: pass
+                    except: 
+                        pass
 
-                # บันทึกเป้าหมาย
+                # บันทึกเป้าหมายเข้าลิสต์และเซฟลงไฟล์ทันที
                 self._save_target(url, params, method, "json")
 
     async def _intercept_response(self, response: Response):
@@ -183,12 +187,18 @@ class Crawler:
 
         if not self.deduplicator.is_seen(method, clean_url, params):
             target = {
-                "url": url.split('?')[0], # เก็บลงรายงานแบบสะอาด
+                "url": url,
                 "method": method,
                 "params": params,
                 "content_type": c_type
+
             }
             self.collected_targets.append(target)
-            self.logger.info(f"    [+] Target Discovered: {method} {url}")
+            
+            # --- เพิ่มตรงนี้: เซฟลงไฟล์ทันทีป้องกันหาย ---
+            with open("raw_targets.json", "w") as f:
+                json.dump(self.collected_targets, f, indent=2)
+                
+            self.logger.info(f"    [+] Target Saved: {method} {url}")
 
 

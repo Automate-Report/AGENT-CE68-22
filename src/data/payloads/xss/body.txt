@@ -4,3 +4,6 @@
 <body onload=alert(1)>
 <iframe src="javascript:alert(1)"></iframe>
 <math><mtext><table><mglyph><svg><mtext><textarea><script>alert(1)</script>
+<svg><desc><![CDATA[</desc><script>alert(1)</script>]]></svg>
+{{constructor.constructor('alert(1)')()}}
+<details open ontoggle=alert(1)>

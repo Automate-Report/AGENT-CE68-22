@@ -52,26 +52,18 @@
     "content_type": "json"
   },
   {
-    "url": "http://localhost:4040/rest/products/24/reviews",
+    "url": "http://localhost:4040/rest/products/6/reviews",
     "method": "GET",
     "params": {
-      "path_id_3": "24"
+      "path_id_3": "6"
     },
     "content_type": "json"
   },
   {
-    "url": "http://localhost:4040/rest/products/42/reviews",
+    "url": "http://localhost:4040/rest/products/30/reviews",
     "method": "GET",
     "params": {
-      "path_id_3": "42"
-    },
-    "content_type": "json"
-  },
-  {
-    "url": "http://localhost:4040/rest/products/3/reviews",
-    "method": "GET",
-    "params": {
-      "path_id_3": "3"
+      "path_id_3": "30"
     },
     "content_type": "json"
   },

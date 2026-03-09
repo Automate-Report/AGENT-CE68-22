@@ -9,6 +9,7 @@ from src.scanner.crawler import Crawler
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
 
 
+
 from src.core.worker_engine import WorkerEngine
 from src.core.auth import AuthManager
 from src.networking.bridge import BackendBridge

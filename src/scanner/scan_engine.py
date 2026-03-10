@@ -280,11 +280,17 @@ class ScanOrchestrator:
             # PHASE 2: Force Login
             auth_success = await self.force_login()
             if auth_success:
-                # --- PHASE 3: Authenticated Crawl ---
-                # เมื่อ Login สำเร็จแล้ว ให้ Crawler วิ่งอีกรอบเพื่อกวาด API ลับข้างใน
-                self.logger.info("[+] Starting Authenticated Discovery...")
-                # ส่งต่อ Session เข้าไปใน Crawler (เช่น Cookies/LocalStorage)
-                auth_targets = await self.crawler.crawl(self.target, max_depth=2)
+                # ดึงคุกกี้ที่เพิ่งได้สดๆ ร้อนๆ จาก AuthHandler
+                captured_cookies = self.crawler.auth_handler.cookies
+                
+                # 💡 หัวใจสำคัญ: ส่งคุกกี้เข้า Crawler ก่อนรันรอบสอง
+                if captured_cookies:
+                    # บังคับใส่ security=low สำหรับ DVWA (หรือเว็บที่ใช้ระบบคล้ายกัน)
+                    # วิธี Generic: ให้บอทลองหาดูว่ามีคุกกี้แนวๆ security ไหม ถ้าไม่มีให้ลองเซ็ต default
+                    self.crawler.set_external_cookies(captured_cookies) 
+                    
+                self.logger.info("[PHASE 3] DEEP CRAWLING WITH SESSION...")
+                auth_targets = await self.crawler.crawl(self.target)
                 
                 # รวมผลลัพธ์เข้าด้วยกัน (Deduplicator จะช่วยกรองตัวที่ซ้ำออกให้เอง)
                 all_targets = public_targets + auth_targets

@@ -38,6 +38,10 @@ class Crawler:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=False)
             context = await browser.new_context(ignore_https_errors=True)
+
+            if hasattr(self, 'external_cookies') and self.external_cookies:
+                await context.add_cookies(self.external_cookies)
+
             yield context
             await browser.close()
 
@@ -50,6 +54,10 @@ class Crawler:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=False) # สังเกตการทำงาน
             context = await browser.new_context(ignore_https_errors=True)
+
+            if hasattr(self, 'external_cookies') and self.external_cookies:
+                await context.add_cookies(self.external_cookies)
+                self.logger.info(f"[Crawler] 🍪 Context initialized with {len(self.external_cookies)} cookies")
 
             while not queue.empty():
                 current_url, depth = await queue.get()
@@ -70,8 +78,36 @@ class Crawler:
 
             await browser.close()
         return self.collected_targets
+    
+    def set_external_cookies(self, cookies: list):
+        """
+        รับคุกกี้จากภายนอก (เช่น จาก AuthHandler) 
+        มาเก็บไว้ในตัวแปรของ Crawler เพื่อใช้ในทุก Browser Context ต่อจากนี้
+        """
+        try:
+            if not cookies:
+                return
+
+            # 1. เก็บลงในตัวแปรหลักของ Crawler
+            self.external_cookies = cookies
+            
+            # 2. พิเศษสำหรับ DVWA หรือเว็บที่มี Security Level
+            # ตรวจสอบว่าในคุกกี้มี 'security' หรือยัง ถ้าไม่มีให้ฉีดเข้าไปเป็น 'low' (Generic Logic)
+            has_security_cookie = any(c['name'] == 'security' for c in cookies)
+            if not has_security_cookie:
+                self.external_cookies.append({
+                    'name': 'security',
+                    'value': 'low',
+                    'domain': 'localhost', # หรือดึงจาก urlparse(self.base_url).hostname
+                    'path': '/'
+                })
+
+            self.logger.info(f"[Crawler] 🍪 External cookies set. Total: {len(self.external_cookies)}")
+        except Exception as e:
+            self.logger.error(f"[Crawler] ❌ Error setting external cookies: {e}")
 
     async def _process_url(self, url, depth, context, queue, base_domain, max_depth):
+
         page = await context.new_page()
         # Intercept API calls เหมือนเดิม
         page.on("request", lambda req: self._intercept_network(req, base_domain))

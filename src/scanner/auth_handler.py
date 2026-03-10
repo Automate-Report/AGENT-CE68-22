@@ -16,7 +16,61 @@ class AuthHandler:
             ("root", "root"), ("user", "user"),
             ("admin", "admin123"), ("admin", "123456")
         ]
+        self.user_selectors = 'input[type="email"], input[name*="user"], input[name*="email"], input#email, input[placeholder*="Email" i]'
+        self.pass_selectors = 'input[type="password"], input[name*="pass"]'
+        self.submit_selectors = 'input[type="submit"], button[type="submit"], button:has-text("Login"), input[name="Login"], input[value="Login"]'
         self.collected_findings = []
+
+        self.last_authenticated_url = None
+
+    async def perform_login(self, page: Page, credentials: dict = None) -> bool:
+
+        has_form = await page.locator(self.pass_selectors).count() > 0
+    
+        if not has_form:
+            self.logger.info("[Auth] 🕵️ No login form detected, searching for login page...")
+            # ลองไปที่ /login.php สำหรับ DVWA หรือ /#/login สำหรับ Juice Shop
+            paths = ["/login.php", "/login", "/#/login"]
+            base_url = page.url.split('#')[0].rstrip('/')
+            
+            for path in paths:
+                await page.goto(f"{base_url}{path}", wait_until="networkidle")
+                if await page.locator(self.pass_selectors).count() > 0:
+                    self.logger.info(f"[Auth] 📍 Found login form at {page.url}")
+                    break
+
+        # 1. ลอง Standard Login (ถ้ามี Creds)
+        if credentials and credentials.get('username') and credentials.get('password'):
+            self.logger.info(f"[Auth] 🔑 Testing Job Credentials...")
+            if await self._try_standard_login(page, credentials):
+                return True
+
+        # 2. ถ้าไม่มีหรือพลาด ให้ใช้ Aggressive Entry (SQLi + Default)
+        return await self.aggressive_entry(page)
+
+    async def _try_standard_login(self, page: Page, creds: dict) -> bool:
+        """ ท่า Login ปกติด้วย Username/Password """
+        try:
+            await self._dismiss_initial_modals(page)
+            # ใช้ Selectors ตัวเดียวกับที่ใช้ใน SQLi Bypass
+            user_input = page.locator(self.user_selectors).first
+            pass_input = page.locator(self.pass_selectors).first
+            # submit_btn = page.locator(self.submit_selectors).first
+
+            if await user_input.is_visible():
+                await user_input.fill(creds['username'])
+                await pass_input.fill(creds['password'])
+
+                await pass_input.press("Enter")
+                
+                await page.wait_for_timeout(2000)
+                if await self._check_success(page):
+                    self.logger.info("✅ Standard Login successful!")
+                    await self._capture_session(page)
+                    return True
+        except Exception as e:
+            self.logger.error(f"[-] Standard login error: {e}")
+        return False
 
     async def find_and_login(self, page: Page, creds: dict) -> bool:
         """[ASYNC] ตรวจหาฟอร์มและพยายาม Login"""
@@ -52,10 +106,13 @@ class AuthHandler:
                 await pass_input.fill(creds.get("password", "admin"))
                 
                 # ใน Async ใช้ asyncio.gather หรือรอแยกกัน
-                await asyncio.gather(
-                    page.wait_for_load_state("networkidle"),
-                    submit_btn.click()
-                )
+                try:
+                    async with page.expect_navigation(timeout=5000):
+                        await submit_btn.click()
+                except:
+                    # ถ้าเว็บเป็น SPA (Juice Shop) มันจะไม่ Navigate หน้าใหม่ ให้กดเฉยๆ แล้วรอ Network นิ่ง
+                    await submit_btn.click()
+                    await page.wait_for_timeout(2000)
                 
                 if await self._check_success(page):
                     await self._capture_session(page)
@@ -180,11 +237,10 @@ class AuthHandler:
         return False
 
     async def _capture_session(self, page: Page):
-        """[ASYNC] เก็บ Cookies และ LocalStorage"""
+        """เก็บ Cookies และบันทึก URL ล่าสุดไว้"""
         self.cookies = await page.context.cookies()
-        # evaluate ต้องใช้ await
-        self.auth_token = await page.evaluate("() => JSON.stringify(localStorage)")
-        self.logger.debug("[Auth] Session captured.")
+        self.last_authenticated_url = page.url # 🚩 บันทึก URL ทันทีที่ Login สำเร็จ
+        self.logger.debug(f"[Auth] Session & URL ({self.last_authenticated_url}) captured.")
 
     async def apply_session(self, context: BrowserContext):
         """[ASYNC] โหลด Session เข้า Context ใหม่"""
@@ -194,25 +250,18 @@ class AuthHandler:
         return False
 
     async def _check_success(self, page: Page) -> bool:
-        # 1. เช็ค LocalStorage แบบกวาด (เว็บสมัยใหม่ชอบเก็บ Token/JWT ไว้ที่นี่)
-        # ดูว่ามี Key อะไรที่ชื่อเหมือน token, auth, session หรือไม่
-        has_token = await page.evaluate("""() => {
-            for (let i = 0; i < localStorage.length; i++) {
-                let key = localStorage.key(i).toLowerCase();
-                if (key.includes('token') || key.includes('auth')) return true;
-            }
-            return false;
-        }""")
+        # Generic Check 1: ปรากฏปุ่ม Logout หรือปุ่มที่มีสัญลักษณ์สื่อถึง User Account
+        logout_indicators = 'a:has-text("Logout"), button:has-text("Sign out"), a[href*="logout"], .user-profile'
+        
+        # Generic Check 2: หน้าเว็บมีการเปลี่ยนแปลงจากหน้า Login เดิมชัดเจน (เช่น URL เปลี่ยน)
+        url_changed = "login" not in page.url.lower() and "auth" not in page.url.lower()
 
-        # 2. เช็คจากหน้าตาเว็บ: ปุ่ม Login หายไป และมีปุ่ม Logout โผล่มาแทน
-        login_not_visible = not await page.locator('a:has-text("Login"), button:has-text("Login")').first.is_visible()
-        logout_visible = await page.locator('a:has-text("Logout"), button:has-text("Logout"), a:has-text("Sign out")').first.is_visible()
+        # Generic Check 3: มี Cookies ใหม่ที่ถูกตั้งค่าเป็น HttpOnly (ส่วนใหญ่เป็น Session ID)
+        cookies = await page.context.cookies()
+        has_session_cookie = any(c.get('httpOnly') for c in cookies)
 
-        # 3. เช็ค Cookies: มี Cookie ใหม่เกิดขึ้นหลังจากการกด Submit หรือไม่
-        # (เปรียบเทียบจำนวน cookies ก่อนและหลัง)
-
-        return (has_token or logout_visible) or (login_not_visible and logout_visible)
-
+        return (await page.locator(logout_indicators).count() > 0) or (url_changed and has_session_cookie)
+    
     async def _try_default_creds(self, page: Page) -> bool:
         self.logger.info("[Auth] 🔑 Testing default credentials...")
         user_input = page.locator('input[type="text"], input[type="email"], input[name*="user"]').first

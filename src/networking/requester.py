@@ -55,19 +55,17 @@ class Requester:
             return None
         
     def set_cookies(self, cookies):
-        """
-        รับคุกกี้ได้ทั้งรูปแบบ List (จาก Playwright) หรือ Dict
-        และนำไปใส่ใน session เพื่อใช้ยิง request ครั้งต่อๆ ไป
-        """
         try:
+            # 🚩 [เพิ่ม] ล้างคุกกี้เก่าทิ้งก่อน เพื่อให้แน่ใจว่าใช้ของใหม่จาก AuthHandler เท่านั้น
+            self.session.cookies.clear() 
+
             if isinstance(cookies, list):
-                # กรณีได้รับมาจาก Playwright: [{'name': '...', 'value': '...'}, ...]
                 for cookie in cookies:
+                    # ตรวจสอบ Domain ให้ตรงกับ Target เพื่อป้องกันคุกกี้ไม่ถูกส่ง
                     self.session.cookies.set(cookie['name'], cookie['value'])
-                self.logger.info(f"[Requester] 🍪 {len(cookies)} cookies injected from Playwright.")
+                self.logger.info(f"[Requester] 🍪 {len(cookies)} cookies injected and session cleared.")
             
             elif isinstance(cookies, dict):
-                # กรณีได้รับมาเป็น Dict ธรรมดา: {'session_id': '123'}
                 requests.utils.add_dict_to_cookiejar(self.session.cookies, cookies)
                 self.logger.info(f"[Requester] 🍪 Cookies injected from dictionary.")
                 

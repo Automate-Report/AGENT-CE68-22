@@ -53,9 +53,17 @@ class Crawler:
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=False) # สังเกตการทำงาน
-            context = await browser.new_context(ignore_https_errors=True)
+            context = await browser.new_context(
+                ignore_https_errors=True,
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
 
             if hasattr(self, 'external_cookies') and self.external_cookies:
+                # ตรวจสอบว่าคุกกี้มี Domain หรือยัง ถ้าไม่มีให้แปะ Domain เข้าไป
+                for cookie in self.external_cookies:
+                    if 'domain' not in cookie:
+                        cookie['domain'] = base_domain
+                
                 await context.add_cookies(self.external_cookies)
                 self.logger.info(f"[Crawler] 🍪 Context initialized with {len(self.external_cookies)} cookies")
 
@@ -88,7 +96,15 @@ class Crawler:
             if not cookies:
                 return
 
-            # 1. เก็บลงในตัวแปรหลักของ Crawler
+            security_keywords = ['security', 'level', 'difficulty', 'vulnerability']
+    
+            for cookie in cookies:
+                if any(key in cookie['name'].lower() for key in security_keywords):
+                    # ถ้าเจอ ให้ลองปรับค่าเป็น 'low' หรือ '0' (แบบ Generic)
+                    if cookie['value'].lower() in ['high', 'impossible', 'medium', '2', '1']:
+                        self.logger.info(f"[Crawler] 🛠 Overriding security cookie '{cookie['name']}' to 'low'")
+                        cookie['value'] = 'low'
+            
             self.external_cookies = cookies
             
             # 2. พิเศษสำหรับ DVWA หรือเว็บที่มี Security Level
@@ -107,37 +123,62 @@ class Crawler:
             self.logger.error(f"[Crawler] ❌ Error setting external cookies: {e}")
 
     async def _process_url(self, url, depth, context, queue, base_domain, max_depth):
+        # 1. Normalize URL ก่อนเริ่มงาน (ตัด fragment # ออก)
+        clean_url = url.split('#')[0].rstrip('/')
+        
+        # ป้องกันการประมวลผลซ้ำ (Double Check)
+        if clean_url in self.visited_urls and depth > 0:
+            return
 
         page = await context.new_page()
-        # Intercept API calls เหมือนเดิม
         page.on("request", lambda req: self._intercept_network(req, base_domain))
         
         try:
-            # 1. Navigation
-            await page.goto(url, wait_until="networkidle", timeout=30000)
-            await page.wait_for_timeout(2000) # รอให้ SPA นิ่งจริงๆ
+            self.logger.info(f"  [..] Processing: {clean_url} (Depth: {depth})")
+            response = await page.goto(clean_url, wait_until="networkidle", timeout=15000)
+            
+            if "login.php" in page.url and "login.php" not in clean_url:
+                self.logger.warning(f"⚠️ [Crawler] Session expired at {clean_url}")
+                return
 
-            # 2. Interact (ใช้ InteractionEngine ที่เราปรับใหม่)
-            await self.interactor.trigger_smart_interaction(page)
+            # รอเมนูโผล่ (ใช้เวลาสั้นลง)
+            for selector in ['#menu', '.sidebar', 'nav']:
+                try:
+                    await page.wait_for_selector(selector, timeout=1000)
+                    break 
+                except: continue
 
-            # 3. Parameter Extraction
+            # 2. Smart Interaction (ใส่ Timeout เพื่อกันลูป/ค้าง)
+            try:
+                # ถ้า interaction นานเกิน 5 วินาที ให้ข้ามไปเก็บลิงก์เลย
+                await asyncio.wait_for(self.interactor.trigger_smart_interaction(page), timeout=5.0)
+            except asyncio.TimeoutError:
+                self.logger.debug(f"  [!] Interaction timeout at {clean_url}")
+            except Exception as e:
+                self.logger.debug(f"  [!] Interaction error: {e}")
+
+            # 3. Extract Parameters
             params = await self.param_extractor.extract_from_dom(page)
-            self._save_target(url, params, "GET", "form")
+            if params:
+                self._save_target(clean_url, params, "GET", "form")
 
-            # 4. Universal Link Extraction
+            # 4. Extract Links (กวาดหน้าอื่นๆ)
             if depth < max_depth:
-                links = await self.link_extractor.extract(page, url)
+                links = await self.link_extractor.extract(page, clean_url)
                 for link in links:
-                    normalized = link.rstrip('/')
-                    if normalized not in self.visited_urls:
-                        self.visited_urls.add(normalized) # Mark ทันที!
-                        await queue.put((normalized, depth + 1))
+                    # 🚩 หัวใจสำคัญ: ล้าง URL ก่อนเอาใส่ Queue
+                    parsed_link = urlparse(link)
+                    # ตัด fragment และ query string บางส่วนที่ทำให้เกิด loop ออก
+                    normalized_link = f"{parsed_link.scheme}://{parsed_link.netloc}{parsed_link.path}".rstrip('/')
+                    
+                    if parsed_link.netloc == base_domain and normalized_link not in self.visited_urls:
+                        # Mark ว่าจะไปแล้วนะ (ป้องกันตัวอื่นเอาลง queue ซ้ำ)
+                        self.visited_urls.add(normalized_link)
+                        await queue.put((link, depth + 1))
 
         except Exception as e:
-            # เก็บ Log error ให้ละเอียดขึ้นเล็กน้อยเพื่อการ Debug
-            self.logger.error(f"[!] Failed to process {url}: {str(e)[:100]}")
+            self.logger.error(f"[!] Failed to process {clean_url}: {str(e)[:50]}")
         finally:
-            # สำคัญมาก: ต้องปิดหน้าเสมอเพื่อคืน Memory
             await page.close()
 
     def _intercept_network(self, request: Request, base_domain: str):

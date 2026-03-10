@@ -79,13 +79,8 @@ class ScanOrchestrator:
             return False, msg
 
     # ===== PHASE 2: FORCE LOGIN =====
+    # ===== PHASE 2: FORCE LOGIN (Refactored) =====
     async def force_login(self) -> bool:
-        """
-        Phase 2: Attempt to authenticate to the application
-        - Try with provided credentials if available
-        - Try aggressive login methods if standard fails
-        Returns: success (bool)
-        """
         self.logger.info("=" * 60)
         self.logger.info("[PHASE 2] AUTHENTICATION / FORCED LOGIN")
         self.logger.info("=" * 60)
@@ -98,74 +93,74 @@ class ScanOrchestrator:
                     self.logger.info(f"🌐 Loading target page: {self.target}")
                     await page.goto(self.target, wait_until="networkidle", timeout=15000)
                     self.logger.info(f"✅ Page loaded successfully")
-                    
                 except Exception as e:
                     self.logger.error(f"❌ Failed to load page: {str(e)}")
                     await page.close()
                     return False
                 
+                # --- ส่วนการหาหน้า Login (เดิมของคุณ) ---
                 password_exists = await page.locator('input[type="password"]').count() > 0
-    
                 if not password_exists:
                     self.logger.info("🕵️ No login form on landing page, searching for entry...")
-                    # ลองเดา Path มาตรฐาน (Generic Guessing)
                     common_login_paths = ["/login", "/signin", "/#/login", "/#/signin"]
-                    
-                    # ลองหาปุ่ม Login ในหน้าเว็บก่อน
                     login_btn = page.locator('a:has-text("Login"), button:has-text("Login"), a:has-text("Sign in")').first
                     if await login_btn.is_visible():
                         await login_btn.click()
                         await page.wait_for_load_state("networkidle")
                     else:
-                        # ถ้าหาปุ่มไม่เจอ ให้ลองเติม Path เอง (Adaptive Navigation)
                         base_url = self.target.rstrip('/')
                         for path in common_login_paths:
                             try:
-                                self.logger.info(f"Trying login path: {path}")
                                 await page.goto(f"{base_url}{path}", wait_until="networkidle", timeout=5000)
                                 if await page.locator('input[type="password"]').count() > 0:
                                     self.logger.info(f"✅ Found login form at {page.url}")
                                     break
                             except: continue
-                
-                # Try authentication if credentials provided
+
+                # --- 🚩 จุดที่ปรับปรุง Logic การ Login ---
                 login_success = False
-                if self.cred and isinstance(self.cred, dict):
-                    self.logger.info(f"🔐 Attempting login with provided credentials...")
+
+                # 1. ลองวิธีมาตรฐาน (Standard / perform_login)
+                self.logger.info(f"[Auth] Attempting Primary Login Method...")
+                login_success = await self.crawler.auth_handler.perform_login(page, self.cred)
+
+                # 2. ถ้ายังไม่สำเร็จ และมี Credential ให้ลอง Heuristic (find_and_login)
+                if not login_success and self.cred and isinstance(self.cred, dict):
+                    self.logger.info(f"🔐 Primary failed. Attempting Heuristic Login...")
                     try:
                         login_success = await self.crawler.auth_handler.find_and_login(page, self.cred)
-                        if login_success:
-                            self.logger.info(f"✅ Login successful with provided credentials!")
                     except Exception as e:
-                        self.logger.warning(f"⚠️ Heuristic login failed: {str(e)}")
-                
-                # Try aggressive login if standard login failed
+                        self.logger.warning(f"⚠️ Heuristic login error: {str(e)}")
+
+                # 3. ถ้ายังไม่สำเร็จอีก ให้ใช้ท่าดุ (Aggressive / SQLi)
                 if not login_success:
-                    self.logger.info(f"🔨 Attempting aggressive login (SQLi bypass, default creds)...")
+                    self.logger.info(f"🔨 Standard failed. Attempting Aggressive Entry...")
                     try:
                         login_success = await self.crawler.auth_handler.aggressive_entry(page)
-                        if login_success:
-                            self.logger.info(f"✅ Aggressive login successful!")
                     except Exception as e:
-                        self.logger.warning(f"⚠️ Aggressive login failed: {str(e)}")
-                
-                # Capture session cookies/tokens
-                cookies = await context.cookies()
-                if cookies:
-                    self.session_state["cookies"] = cookies
-                    self.session_state["authenticated"] = True
-                    self.logger.info(f"🍪 Captured {len(cookies)} session cookies")
+                        self.logger.warning(f"⚠️ Aggressive login error: {str(e)}")
+
+                # --- 🚩 จัดการผลลัพธ์หลัง Login ---
+                if login_success:
+                    # 💡 สำคัญ: ต้อง Capture ข้อมูลก่อนปิด Page
+                    await self.crawler.auth_handler._capture_session(page) 
+                    
+                    cookies = await context.cookies()
+                    if cookies:
+                        self.session_state["cookies"] = cookies
+                        self.session_state["authenticated"] = True
+                        self.logger.info(f"🍪 Captured {len(cookies)} session cookies")
+                    
+                    self.session_state["auth_info"] = {
+                        "cookies": cookies,
+                        "auth_token": getattr(self.crawler.auth_handler, 'auth_token', None)
+                    }
+                    self.logger.info(f"✅ [Auth Success] Current URL: {page.url}")
                 else:
-                    self.logger.warning(f"⚠️ No cookies captured")
-                
-                # Store auth info for scanners
-                self.session_state["auth_info"] = {
-                    "cookies": cookies,
-                    "auth_token": getattr(self.crawler.auth_handler, 'auth_token', None)
-                }
-                
+                    self.logger.warning("❌ [Auth Failed] Could not authenticate to target")
+
                 await page.close()
-                return login_success
+                return login_success # 🚩 คืนค่าจริงเพื่อให้ run_workflow ทำงานต่อ
                 
         except Exception as e:
             self.logger.error(f"❌ Critical error during authentication: {str(e)}")
@@ -218,10 +213,6 @@ class ScanOrchestrator:
 
     # ===== PHASE 4: ATTACK & EXPLOIT =====
     async def attack(self, targets: list) -> list:
-        """
-        Phase 4: Execute attacks (XSS and/or SQLi) on discovered endpoints
-        Returns: list of findings
-        """
         self.logger.info("=" * 60)
         self.logger.info("[PHASE 4] ATTACK / EXPLOITATION")
         self.logger.info("=" * 60)
@@ -232,26 +223,33 @@ class ScanOrchestrator:
             self.logger.warning("⚠️ No targets to attack")
             return findings
         
-        unique_targets = list({t['url']: t for t in targets}.values())
+        # 🚩 Deduplication Logic (Smart Filter)
+        unique_map = {}
+        for t in targets:
+            p_keys = sorted(t.get('params', {}).keys())
+            # สร้าง Key จาก Method + URL + รายชื่อพารามิเตอร์
+            key = f"{t.get('method', 'GET')}_{t['url']}_{'-'.join(p_keys)}"
+            unique_map[key] = t
+
+        unique_targets = list(unique_map.values())
         self.logger.info(f"📊 Deduplication: {len(targets)} -> {len(unique_targets)} unique targets")
-        targets = unique_targets
         
-        # Sync session state with scanners
+        # Sync session state with scanners (Cookies/Tokens)
         self._sync_session_to_scanners()
         
-        # Execute attack based on type
+        # 🚩 ใช้ unique_targets ในการสแกนเพื่อความประหยัดเวลาและแม่นยำ
         if self.attack_type == "sql_injection":
-            self.logger.info(f"🔓 Running SQL Injection scans on {len(targets)} endpoints...")
-            findings = await self._run_sqli_scan(targets)
+            self.logger.info(f"🔓 Running SQL Injection scans on {len(unique_targets)} endpoints...")
+            findings = await self._run_sqli_scan(unique_targets)
             
-        elif self.attack_type == "xss" or self.attack_type == "XSS":
-            self.logger.info(f"💉 Running XSS scans on {len(targets)} endpoints...")
-            findings = await self._run_xss_scan(targets)
+        elif self.attack_type in ["xss", "XSS"]:
+            self.logger.info(f"💉 Running XSS scans on {len(unique_targets)} endpoints...")
+            findings = await self._run_xss_scan(unique_targets)
             
         elif self.attack_type == "all":
-            self.logger.info(f"🎯 Running ALL scans on {len(targets)} endpoints...")
-            findings.extend(await self._run_xss_scan(targets))
-            findings.extend(await self._run_sqli_scan(targets))
+            self.logger.info(f"🎯 Running ALL scans on {len(unique_targets)} endpoints...")
+            findings.extend(await self._run_xss_scan(unique_targets))
+            findings.extend(await self._run_sqli_scan(unique_targets))
         else:
             self.logger.warning(f"⚠️ Unknown attack type: {self.attack_type}")
         
@@ -273,27 +271,47 @@ class ScanOrchestrator:
             public_targets = await self.crawler.crawl(self.target, max_depth=1)
             
             # PHASE 2: Force Login
-            auth_success = await self.force_login()
+            auth_success = await self.force_login() # เรียกฟังก์ชันเดียวจบ
+
+            # ตรวจสอบ Finding จาก Auth (ถ้ามี)
+            auth_findings = []
             if hasattr(self.crawler.auth_handler, 'collected_findings'):
                 auth_findings = self.crawler.auth_handler.collected_findings
-                if auth_findings:
-                    self.logger.info(f"[ScanEngine] 🚩 Found {len(auth_findings)} authentication findings.")
             
             if auth_success:
-                # ดึงคุกกี้ที่เพิ่งได้สดๆ ร้อนๆ จาก AuthHandler
+                # 1. ดึงคุกกี้ออกมาจัดการก่อน
                 captured_cookies = self.crawler.auth_handler.cookies
                 
-                # 💡 หัวใจสำคัญ: ส่งคุกกี้เข้า Crawler ก่อนรันรอบสอง
                 if captured_cookies:
-                    # บังคับใส่ security=low สำหรับ DVWA (หรือเว็บที่ใช้ระบบคล้ายกัน)
-                    # วิธี Generic: ให้บอทลองหาดูว่ามีคุกกี้แนวๆ security ไหม ถ้าไม่มีให้ลองเซ็ต default
-                    self.crawler.set_external_cookies(captured_cookies) 
+                    # 2. 🚩 แก้ไข Security Level ให้เป็น Low ก่อนส่งต่อ
+                    for cookie in captured_cookies:
+                        if cookie['name'].lower() == 'security':
+                            if cookie['value'].lower() != 'low':
+                                self.logger.info(f"[ScanEngine] 🛠 Overriding security level from '{cookie['value']}' to 'low'")
+                                cookie['value'] = 'low'
                     
-                self.logger.info("[PHASE 3] DEEP CRAWLING WITH SESSION...")
-                auth_targets = await self.crawler.crawl(self.target)
+                    # 3. 🚩 ส่งคุกกี้ที่แก้ไขแล้วเข้า Crawler สำหรับ Phase 3
+                    self.crawler.set_external_cookies(captured_cookies)
+
+                current_url = self.crawler.auth_handler.last_authenticated_url or self.target
+    
+                self.logger.info("=" * 60)
+                self.logger.info(f"[PHASE 3] DEEP CRAWLING WITH SESSION...")
+                self.logger.info(f"Seed URL: {current_url}")
+                self.logger.info("=" * 60)
                 
-                # รวมผลลัพธ์เข้าด้วยกัน (Deduplicator จะช่วยกรองตัวที่ซ้ำออกให้เอง)
-                all_targets = public_targets + auth_targets
+                # Crawler จะใช้คุกกี้ security=low ที่เราเซ็ตเมื่อครู่
+                auth_targets = await self.crawler.crawl(current_url, max_depth=3)
+
+                # 4. เพิ่ม Manual Target เพื่อความชัวร์ (ใช้สำหรับยืนยันผลใน Thesis)
+                manual_target = {
+                    "url": f"{self.target.rstrip('/')}/vulnerabilities/sqli/",
+                    "method": "GET",
+                    "params": {"id": "1", "Submit": "Submit"},
+                    "content_type": "form"
+                }
+
+                all_targets = public_targets + auth_targets + [manual_target]
             else:
                 all_targets = public_targets
             
@@ -336,29 +354,24 @@ class ScanOrchestrator:
 
     def _sync_session_to_scanners(self):
         """Sync captured session state to all scanners"""
-        if self.session_state["cookies"]:
-            self.logger.info("[ScanEngine] Syncing session state to scanners...")
+        current_cookies = self.crawler.auth_handler.cookies
+        
+        if current_cookies:
+            # ส่งคุกกี้ที่แก้เป็น security=low ให้ Requester กลาง
+            self.requester.set_cookies(current_cookies)
             
-            # Format cookies for Requester
-            try:
-                formatted_cookies = {c['name']: c['value'] for c in self.session_state["cookies"]}
-                if hasattr(self.requester, 'set_cookies'):
-                    self.requester.set_cookies(formatted_cookies)
-            except Exception as e:
-                self.logger.warning(f"Could not sync cookies to requester: {e}")
+            # 🚩 สำคัญ: ส่ง auth_info ให้ Scanner เพื่อใช้ถ่ายรูป
+            auth_payload = {
+                "cookies": current_cookies,
+                "auth_token": getattr(self.crawler.auth_handler, 'auth_token', None)
+            }
             
-            # Sync with XSS scanner verifier
-            try:
-                if hasattr(self.reflected_scanner, 'verifier'):
-                    self.reflected_scanner.verifier.auth_data = self.session_state["auth_info"]
-            except Exception as e:
-                self.logger.debug(f"Could not sync to XSS verifier: {e}")
-            
-            # Sync with DOM scanner
-            try:
-                self.dom_scanner.auth_info = self.session_state["auth_info"]
-            except Exception as e:
-                self.logger.debug(f"Could not sync to DOM scanner: {e}") 
+            if hasattr(self.sqli_scanner, 'auth_info'):
+                self.sqli_scanner.auth_info = auth_payload
+            if hasattr(self.reflected_scanner, 'auth_info'):
+                self.reflected_scanner.auth_info = auth_payload
+
+            self.logger.info("[ScanEngine] 🔄 Global Session Sync Completed (Cookies & Auth Info)")
 
     def _build_response(self, status, findings=[], target_count=0, error=None, crawler_urls=[]):
         """Build standardized response structure"""
@@ -397,11 +410,11 @@ class ScanOrchestrator:
                 findings.extend(self.reflected_scanner.scan(url, params, method, c_type))
                 
                 # DOM XSS (for non-API endpoints)
-                # if not is_api:
-                #     self.logger.debug(f"  └─ Testing DOM XSS...")
-                #     self.dom_scanner.auth_info = self.session_state["auth_info"]
-                #     dom_findings = await self.dom_scanner.scan(url, params, method)
-                #     findings.extend(dom_findings)
+                if not is_api:
+                    self.logger.debug(f"  └─ Testing DOM XSS...")
+                    self.dom_scanner.auth_info = self.session_state["auth_info"]
+                    dom_findings = await self.dom_scanner.scan(url, params, method)
+                    findings.extend(dom_findings)
                     
             except Exception as e:
                 self.logger.warning(f"  └─ Error scanning {url}: {str(e)}")

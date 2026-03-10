@@ -255,11 +255,6 @@ class ScanOrchestrator:
         else:
             self.logger.warning(f"⚠️ Unknown attack type: {self.attack_type}")
         
-        if findings:
-            self.logger.info(f"✅ Found {len(findings)} vulnerabilities!")
-        else:
-            self.logger.info(f"✅ No vulnerabilities found")
-        
         return findings
 
     # ===== MAIN WORKFLOW =====
@@ -279,6 +274,11 @@ class ScanOrchestrator:
             
             # PHASE 2: Force Login
             auth_success = await self.force_login()
+            if hasattr(self.crawler.auth_handler, 'collected_findings'):
+                auth_findings = self.crawler.auth_handler.collected_findings
+                if auth_findings:
+                    self.logger.info(f"[ScanEngine] 🚩 Found {len(auth_findings)} authentication findings.")
+            
             if auth_success:
                 # ดึงคุกกี้ที่เพิ่งได้สดๆ ร้อนๆ จาก AuthHandler
                 captured_cookies = self.crawler.auth_handler.cookies
@@ -305,16 +305,21 @@ class ScanOrchestrator:
                     self.requester.set_header("Authorization", f"Bearer {bearer}")
                     self.logger.info("[ScanEngine] 🔑 Bearer Token Injected for Phase 4")
 
+            scan_findings = await self.attack(all_targets)
+            findings = auth_findings + scan_findings
 
+            if findings:
+                self.logger.info(f"✅ Found {len(findings)} vulnerabilities!")
+            else:
+                self.logger.info(f"✅ No vulnerabilities found")
 
-            findings = await self.attack(all_targets)
-            
+            is_vuln_found = len(findings) > 0
             # Build final response
             cleaned_urls = [normalize_url(t["url"]) if isinstance(t, dict) else normalize_url(str(t)) 
                           for t in all_targets]
             
             return self._build_response(
-                "found" if findings else "not found",
+                "found" if is_vuln_found else "not found",
                 findings=findings,
                 target_count=len(all_targets),
                 crawler_urls=cleaned_urls
@@ -415,7 +420,7 @@ class ScanOrchestrator:
             self.logger.info(f"[{i}/{len(targets)}] SQLi Scan: {method} {url}")
             
             try:
-                findings.extend(self.sqli_scanner.scan(url, params, method, c_type))
+                findings.extend(await self.sqli_scanner.scan(url, params, method, c_type))
             except Exception as e:
                 self.logger.warning(f"  └─ Error scanning {url}: {str(e)}")
         

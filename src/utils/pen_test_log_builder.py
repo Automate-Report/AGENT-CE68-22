@@ -9,7 +9,8 @@ class VulnerabilityBuilder:
             "Time-Based SQLi": "CRITICAL",
             "Reflected XSS": "MEDIUM",
             "DOM XSS": "MEDIUM",
-            "Stored XSS": "HIGH"
+            "Stored XSS": "HIGH",
+            "Authentication Bypass via SQL Injection": "CRITICAL"
         }
 
         self.knowledge_base = {

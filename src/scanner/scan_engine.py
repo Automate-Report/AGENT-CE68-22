@@ -303,15 +303,7 @@ class ScanOrchestrator:
                 # Crawler จะใช้คุกกี้ security=low ที่เราเซ็ตเมื่อครู่
                 auth_targets = await self.crawler.crawl(current_url, max_depth=3)
 
-                # 4. เพิ่ม Manual Target เพื่อความชัวร์ (ใช้สำหรับยืนยันผลใน Thesis)
-                manual_target = {
-                    "url": f"{self.target.rstrip('/')}/vulnerabilities/sqli/",
-                    "method": "GET",
-                    "params": {"id": "1", "Submit": "Submit"},
-                    "content_type": "form"
-                }
-
-                all_targets = public_targets + auth_targets + [manual_target]
+                all_targets = public_targets + auth_targets
             else:
                 all_targets = public_targets
             

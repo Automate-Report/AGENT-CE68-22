@@ -238,7 +238,7 @@ class ScanOrchestrator:
         self._sync_session_to_scanners()
         
         # 🚩 ใช้ unique_targets ในการสแกนเพื่อความประหยัดเวลาและแม่นยำ
-        if self.attack_type == "sql_injection":
+        if self.attack_type == "sqli":
             self.logger.info(f"🔓 Running SQL Injection scans on {len(unique_targets)} endpoints...")
             findings = await self._run_sqli_scan(unique_targets)
             

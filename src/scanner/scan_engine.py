@@ -78,7 +78,6 @@ class ScanOrchestrator:
             self.logger.error(f"❌ {msg}")
             return False, msg
 
-    # ===== PHASE 2: FORCE LOGIN =====
     # ===== PHASE 2: FORCE LOGIN (Refactored) =====
     async def force_login(self) -> bool:
         self.logger.info("=" * 60)

@@ -90,7 +90,7 @@ class Settings:
                 
                 self.redis_url = data.get("REDIS_URL")
 
-                self.logger.debug(f"[Settings] Overlay Found: Worker {self.worker_id}")
+                self.logger.debug(f"[Settings] Overlay Found: Worker {self.worker_name}")
             else:
                 self.logger.debug(f"[Settings] ⚠️ Warning: ไม่พบ ID ที่ฝังมา (อาจจะรันแบบ Python Script ปกติ หรือไม่ได้ผ่าน Backend)")
         except Exception as e:

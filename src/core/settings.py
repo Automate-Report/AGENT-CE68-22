@@ -53,13 +53,15 @@ class Settings:
         # load from config.json
         self._load_from_json_file()
 
-        self.logger.info(f"Setup Worker.")
-
         # exteact 
         self._load_from_exe_overlay()
 
+        self.logger.info(f"Setup Worker.")
+
         # get access_key
         self._load_or_ask_access_key()
+
+        
         self.logger.info(f"[Settings] Loaded: Worker {self.worker_name} | Poll: {self.poll_interval}s")
 
     def reset(self):
@@ -86,10 +88,9 @@ class Settings:
                 self.worker_name = data.get("WORKER_NAME")
                 self.maxThread = data.get("NUMBER_OF_THREADS", 1)
                 self.backend_url = data.get("BACKEND_URL")
-                
                 self.redis_url = data.get("REDIS_URL")
 
-                self.logger.debug(f"[Settings] Overlay Found: Worker {self.worker_name}")
+                self.logger.info(f"[Settings] Overlay Found: Worker {self.worker_name}")
             else:
                 self.logger.debug(f"[Settings] ⚠️ Warning: ไม่พบ ID ที่ฝังมา (อาจจะรันแบบ Python Script ปกติ หรือไม่ได้ผ่าน Backend)")
         except Exception as e:
@@ -130,7 +131,7 @@ class Settings:
         self.logger.info("--------------------------")
 
         while not key:
-            user_input = getpass.getpass(f"Enter Access Key for {self.worker_name}: ")
+            user_input = getpass.getpass(f"Enter Access Key: ")
             if user_input.strip():
                 key = user_input.strip()
         

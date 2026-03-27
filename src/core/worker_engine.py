@@ -52,7 +52,7 @@ class WorkerEngine:
 
     def start(self):
         """เริ่มต้นการทำงานของ Worker"""
-        self.logger.info(f"[Worker Engine] 🚀 Initializing Worker Engine [Nane: {settings.worker_name}]")
+        self.logger.info(f"[Worker Engine] 🚀 Initializing Worker Engine [Name: {settings.worker_name}]")
         
         # 1. ยืนยันตัวตนก่อน
         if not self.auth.verify_worker():

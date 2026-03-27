@@ -27,24 +27,23 @@ class Settings:
 
 
     def __init__(self):
-        
-        self.worker_name = "XSS Worker"
-        
-        self.access_key = "KiNQSQODu7bNBv31aDCofvskfmM2Z-KYjtBz67pglOg"
+         
+        self.access_key = ""
         self.poll_interval = 5
         self.hostname = socket.gethostname()
-        self.maxThread = 2
-
-
-        self.redis_url = "redis://10.60.1.214:5678/1"
-
+        
         self.secure_store = EncryptedConfig("secret.dat")
 
         self.logger = setup_logger("Worker")
 
         # extract จาก exe
         self.worker_id = 1
+        self.worker_name = ""
+        self.maxThread = 2
         self.backend_url = "http://localhost:8000"
+        self.redis_url = "redis://10.60.1.214:5678/1"
+        
+
         self.get_worker_endpoint = "/workers/"
         self.verify_endpoint = "/workers/verify/"
         self.send_pentest_log = "/pentest-logs/" 
@@ -56,15 +55,9 @@ class Settings:
         self._load_from_json_file()
 
         self.logger.info(f"Setup Worker.")
-        # exteact เอา worker_id กับ backend_url
-        self._load_from_exe_overlay()
 
-        # get worker_name
-        url = f"{self.backend_url}{self.get_worker_endpoint}{int(self.worker_id)}"
-        response = requests.get(url)
-        data = response.json()
-        worker_name = data.get("name")
-        self.worker_name = worker_name
+        # exteact 
+        self._load_from_exe_overlay()
 
         # get access_key
         self._load_or_ask_access_key()
@@ -91,8 +84,10 @@ class Settings:
                 data = json.loads(f.decrypt(encrypted_data))
                 
                 self.worker_id = data.get("WORKER_ID")
-                self.backend_url = data.get("BACKEND_URL")
+                self.worker_name = data.get("WORKER_NAME")
                 self.maxThread = data.get("NUMBER_OF_THREADS", 1)
+                self.backend_url = data.get("BACKEND_URL")
+                
                 self.redis_url = data.get("REDIS_URL")
 
                 self.logger.debug(f"[Settings] Overlay Found: Worker {self.worker_id}")

@@ -82,6 +82,8 @@ class WorkerEngine:
                             self.logger.info("[Worker Engine] ❌ Error: job_id is missing in payload")
                             return
                         
+                        settings.maxThread = job_data.get("thread_number")
+                        
                         # ส่งงานเข้าไปใน Thread Pool
                         # หาก Thread เต็ม งานจะเข้าคิวรออัตโนมัติ
                         self.executor.submit(self.run_task, job_data)

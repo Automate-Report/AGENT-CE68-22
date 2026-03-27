@@ -29,7 +29,7 @@ class AuthManager:
             url = f"{settings.backend_url}{settings.verify_endpoint}"
 
             local_ip = self.get_internal_ip()
-            print(settings.access_key)
+
             payload = {
                 "worker_id": settings.worker_id,
                 "key": settings.access_key,
@@ -38,8 +38,6 @@ class AuthManager:
             }
 
             response = requests.post(url, json=payload, timeout=10) 
-            print(response)
-
 
             if response.status_code == 200:
                 self.logger.info("[Auth] Verified Success")

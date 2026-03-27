@@ -2,7 +2,6 @@ import sys
 import json
 import os
 import getpass
-import requests
 import socket
 
 from cryptography.fernet import Fernet

@@ -1,5 +1,3 @@
-from http.client import HTTPException
-
 import requests
 import socket
 from src.core.settings import settings

@@ -28,31 +28,31 @@ class WorkerEngine:
         """
         Wrapper สำหรับการรันงานใน Thread
         """
-        job_id = job_data.get("job_id")
+        job_name = job_data.get("name")
         try:
             # เพิ่มจำนวน Thread ที่กำลังทำงาน (เพื่อให้ Heartbeat ส่งค่าที่ถูกต้อง)
             self.bridge.active_threads += 1
-            self.logger.info(f"[Worker Engine][Job {job_id}] Processing...")
+            self.logger.info(f"[Worker Engine][Job {job_name}] Processing...")
 
             orchestrator = ScanOrchestrator(job_data)
             scan_result = asyncio.run(orchestrator.run_workflow())
 
             full_logs = scan_result.get("logs", "")
-            self.logger.info(f"Job {job_id} generated {full_logs}")
+            self.logger.info(f"Job {job_name} generated {full_logs}")
 
             # ส่ง pen test log กลับไปที่ Backend
             self.bridge.post_result(scan_result)
 
         except Exception as e:
-            self.logger.error(f"[Worker Engine][Job {job_id}] Error: {e}")
+            self.logger.error(f"[Worker Engine][Job {job_name}] Error: {e}")
         finally:
             # ลดจำนวน Thread เมื่อจบงาน (ไม่ว่าจะสำเร็จหรือพัง)
             self.bridge.active_threads -= 1
-            self.logger.info(f"[Worker Engine][Job {job_id}] Done. (Active Threads: {self.bridge.active_threads})")
+            self.logger.info(f"[Worker Engine][Job {job_name}] Done. (Active Threads: {self.bridge.active_threads})")
 
     def start(self):
         """เริ่มต้นการทำงานของ Worker"""
-        self.logger.info(f"[Worker Engine] 🚀 Initializing Worker Engine [ID: {settings.worker_id}]")
+        self.logger.info(f"[Worker Engine] 🚀 Initializing Worker Engine [Nane: {settings.worker_name}]")
         
         # 1. ยืนยันตัวตนก่อน
         if not self.auth.verify_worker():
@@ -63,7 +63,7 @@ class WorkerEngine:
         self.bridge.start_heartbeat_loop()
 
         # 3. เริ่มดึงงานจาก Redis (Main Loop)
-        self.logger.info(f"[Worker Engine] 📡 Waiting for jobs in {self.queue_name}...")
+        self.logger.info(f"[Worker Engine] 📡 Waiting for jobs in queue...")
         try:
             while True:
                 # ใช้ blpop เพื่อรอรับงานแบบ Blocking (ไม่กิน CPU)
@@ -77,6 +77,7 @@ class WorkerEngine:
                         job_data = json.loads(raw_data)
                         self.logger.debug(f"[Worker Engine] DEBUG: job_data content is {job_data}")
                         job_id = job_data.get("job_id")
+                        job_name = job_data.get("name")
 
                         if job_id is None:
                             self.logger.info("[Worker Engine] ❌ Error: job_id is missing in payload")
@@ -87,7 +88,7 @@ class WorkerEngine:
                         # ส่งงานเข้าไปใน Thread Pool
                         # หาก Thread เต็ม งานจะเข้าคิวรออัตโนมัติ
                         self.executor.submit(self.run_task, job_data)
-                        self.logger.info(f"[Worker Engine] 📦 New Job Received: {job_id}")
+                        self.logger.info(f"[Worker Engine] 📦 New Job Received: {job_name}")
                         payload = {
                             "job_id": job_id,
                             "status": "running"

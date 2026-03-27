@@ -55,7 +55,7 @@ class AuthManager:
             else:
                 try:
                     error_detail = response.json().get("detail", "No detail provided")
-                    self.logger.error(f"[Auth] Verification Failed: {response.status_code} - {error_detail}")
+                    self.logger.error(f"[Auth] Verification Failed: {response.status_code}")
                 except:
                     self.logger.error(f"[Auth] Verification Failed: {response.status_code}")
                 return False

@@ -69,32 +69,41 @@ class Settings:
         self.secure_store.remove_file()
 
     def _load_from_exe_overlay(self):
-        """แกะ ID และ URL จากท้ายไฟล์ EXE"""
+        """แกะ config จาก worker.cfg"""
         try:
-            exe_path = os.path.abspath(sys.argv[0])
-            self.logger.info(f"[Settings] Reading EXE from: {exe_path}")
+            if getattr(sys, 'frozen', False):
+                BASE_DIR = os.path.dirname(sys.executable)
+            else:
+                BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-            with open(exe_path, "rb") as f:
-                content = f.read()
-            
-            pos = content.rfind(self.DELIMITER)
-            self.logger.info(f"[Settings] DELIMITER pos: {pos}") 
+            cfg_path = os.path.join(BASE_DIR, "worker.cfg")
+            self.logger.info(f"[Settings] Reading config from: {cfg_path}")
+
+            with open(cfg_path, "rb") as f:
+                raw = f.read()
+
+            pos = raw.rfind(self.DELIMITER)
+            self.logger.info(f"[Settings] DELIMITER pos: {pos}")
+
             if pos != -1:
-                encrypted_data = content[pos + len(self.DELIMITER):]
-                f = Fernet(self.EMBEDDED_KEY)
-                data = json.loads(f.decrypt(encrypted_data))
-                
+                encrypted_data = raw[pos + len(self.DELIMITER):]
+                fernet = Fernet(self.EMBEDDED_KEY)
+                data = json.loads(fernet.decrypt(encrypted_data))
+
                 self.worker_id = data.get("WORKER_ID")
                 self.worker_name = data.get("WORKER_NAME")
                 self.maxThread = data.get("NUMBER_OF_THREADS", 1)
                 self.backend_url = data.get("BACKEND_URL")
                 self.redis_url = data.get("REDIS_URL")
 
-                self.logger.info(f"[Settings] Overlay Found: Worker {self.worker_name}")
+                self.logger.info(f"[Settings] Config Found: Worker {self.worker_name}")
             else:
-                self.logger.debug(f"[Settings] ⚠️ Warning: ไม่พบ ID ที่ฝังมา (อาจจะรันแบบ Python Script ปกติ หรือไม่ได้ผ่าน Backend)")
+                self.logger.debug(f"[Settings] ⚠️ Warning: ไม่พบ config (อาจจะรันแบบ Python Script ปกติ หรือไม่ได้ผ่าน Backend)")
+
+        except FileNotFoundError:
+            self.logger.debug(f"[Settings] ⚠️ Warning: ไม่พบไฟล์ worker.cfg")
         except Exception as e:
-            self.logger.error(f"[Settings] ❌ Error reading EXE overlay: {e}")
+            self.logger.error(f"[Settings] ❌ Error reading config: {e}")
 
     def _load_from_json_file(self):
         """อ่านค่า Config ที่ User แก้ไขได้"""

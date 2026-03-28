@@ -46,6 +46,7 @@ class AuthHandler:
                 return True
 
         # 2. ถ้าไม่มีหรือพลาด ให้ใช้ Aggressive Entry (SQLi + Default)
+        self.logger.info(f"[Auth][DEBUG] Use Aggressive_entry username:{credentials.get('username')}, passsword: {credentials.get('password')}")
         return await self.aggressive_entry(page)
 
     async def _try_standard_login(self, page: Page, creds: dict) -> bool:

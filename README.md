@@ -12,3 +12,5 @@ pyinstaller --onedir \
   --collect-all cryptography \
   --collect-all charset_normalizer \
   main.py
+
+python -m nuitka --standalone --output-filename=Pest10Worker.exe --include-data-dir=./src/data=data --include-package=cryptography --include-package=charset_normalizer --include-package=requests main.py

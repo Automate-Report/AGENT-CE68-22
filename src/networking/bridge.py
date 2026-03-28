@@ -49,6 +49,8 @@ class BackendBridge:
 
 
             if response.status_code == 200:
+                data = response.json()
+                settings.maxThread = data.get("worker_threadnumber")
                 self.logger.info(f"[Bridge] 💓 Heartbeat OK Load: {self.active_threads}/{settings.maxThread}")
                 return True
             

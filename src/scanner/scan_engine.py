@@ -116,24 +116,30 @@ class ScanOrchestrator:
                                     break
                             except: continue
 
-                # --- 🚩 จุดที่ปรับปรุง Logic การ Login ---
+                # --- Login Strategy ---
                 login_success = False
+                has_creds = bool(
+                    self.cred and isinstance(self.cred, dict)
+                    and self.cred.get('username') and self.cred.get('password')
+                )
 
-                # 1. ลองวิธีมาตรฐาน (Standard / perform_login)
+                # 1. Standard Login (credential-based)
                 self.logger.info(f"[Auth] Attempting Primary Login Method...")
                 login_success = await self.crawler.auth_handler.perform_login(page, self.cred)
 
-                # 2. ถ้ายังไม่สำเร็จ และมี Credential ให้ลอง Heuristic (find_and_login)
-                if not login_success and self.cred and isinstance(self.cred, dict):
+                # 2. Heuristic Login (ลอง detect form แล้วกรอก creds อีกรอบ)
+                if not login_success and has_creds:
                     self.logger.info(f"🔐 Primary failed. Attempting Heuristic Login...")
                     try:
                         login_success = await self.crawler.auth_handler.find_and_login(page, self.cred)
                     except Exception as e:
                         self.logger.warning(f"⚠️ Heuristic login error: {str(e)}")
 
-                # 3. ถ้ายังไม่สำเร็จอีก ให้ใช้ท่าดุ (Aggressive / SQLi)
-                if not login_success:
-                    self.logger.info(f"🔨 Standard failed. Attempting Aggressive Entry...")
+                # 3. Aggressive Entry (SQLi Bypass + Default Creds)
+                #    → เรียกเฉพาะเมื่อไม่มี credentials ใน job เท่านั้น
+                #    → ถ้ามี creds แต่ login ไม่ผ่าน = auth fail จริง ไม่ใช่ช่องโหว่ของเว็บ
+                if not login_success and not has_creds:
+                    self.logger.info(f"🔨 No credentials provided. Attempting Aggressive Entry (SQLi Bypass)...")
                     try:
                         login_success = await self.crawler.auth_handler.aggressive_entry(page)
                     except Exception as e:
@@ -237,7 +243,7 @@ class ScanOrchestrator:
         self._sync_session_to_scanners()
         
         # 🚩 ใช้ unique_targets ในการสแกนเพื่อความประหยัดเวลาและแม่นยำ
-        if self.attack_type == "sqli":
+        if self.attack_type in ["sqli", "sql_injection"]:
             self.logger.info(f"🔓 Running SQL Injection scans on {len(unique_targets)} endpoints...")
             findings = await self._run_sqli_scan(unique_targets)
             
@@ -282,14 +288,7 @@ class ScanOrchestrator:
                 captured_cookies = self.crawler.auth_handler.cookies
                 
                 if captured_cookies:
-                    # 2. 🚩 แก้ไข Security Level ให้เป็น Low ก่อนส่งต่อ
-                    for cookie in captured_cookies:
-                        if cookie['name'].lower() == 'security':
-                            if cookie['value'].lower() != 'low':
-                                self.logger.info(f"[ScanEngine] 🛠 Overriding security level from '{cookie['value']}' to 'low'")
-                                cookie['value'] = 'low'
-                    
-                    # 3. 🚩 ส่งคุกกี้ที่แก้ไขแล้วเข้า Crawler สำหรับ Phase 3
+                    # ส่งคุกกี้เข้า Crawler สำหรับ Phase 3
                     self.crawler.set_external_cookies(captured_cookies)
 
                 current_url = self.crawler.auth_handler.last_authenticated_url or self.target
@@ -364,8 +363,10 @@ class ScanOrchestrator:
 
             self.logger.info("[ScanEngine] 🔄 Global Session Sync Completed (Cookies & Auth Info)")
 
-    def _build_response(self, status, findings=[], target_count=0, error=None, crawler_urls=[]):
+    def _build_response(self, status, findings=None, target_count=0, error=None, crawler_urls=None):
         """Build standardized response structure"""
+        findings = findings if findings is not None else []
+        crawler_urls = crawler_urls if crawler_urls is not None else []
         return {
             "job_id": int(self.job_id),
             "status": status,

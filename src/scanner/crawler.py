@@ -36,7 +36,7 @@ class Crawler:
     async def get_browser_context(self):
         """Helper สำหรับให้ Orchestrator ยืม Browser ไปใช้ Login"""
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=False)
+            browser = await p.chromium.launch(headless=True)
             context = await browser.new_context(ignore_https_errors=True)
 
             if hasattr(self, 'external_cookies') and self.external_cookies:
@@ -52,7 +52,7 @@ class Crawler:
         base_domain = urlparse(start_url).netloc
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=False) # สังเกตการทำงาน
+            browser = await p.chromium.launch(headless=True)
             context = await browser.new_context(
                 ignore_https_errors=True,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -96,28 +96,7 @@ class Crawler:
             if not cookies:
                 return
 
-            security_keywords = ['security', 'level', 'difficulty', 'vulnerability']
-    
-            for cookie in cookies:
-                if any(key in cookie['name'].lower() for key in security_keywords):
-                    # ถ้าเจอ ให้ลองปรับค่าเป็น 'low' หรือ '0' (แบบ Generic)
-                    if cookie['value'].lower() in ['high', 'impossible', 'medium', '2', '1']:
-                        self.logger.info(f"[Crawler] 🛠 Overriding security cookie '{cookie['name']}' to 'low'")
-                        cookie['value'] = 'low'
-            
             self.external_cookies = cookies
-            
-            # 2. พิเศษสำหรับ DVWA หรือเว็บที่มี Security Level
-            # ตรวจสอบว่าในคุกกี้มี 'security' หรือยัง ถ้าไม่มีให้ฉีดเข้าไปเป็น 'low' (Generic Logic)
-            has_security_cookie = any(c['name'] == 'security' for c in cookies)
-            if not has_security_cookie:
-                self.external_cookies.append({
-                    'name': 'security',
-                    'value': 'low',
-                    'domain': 'localhost', # หรือดึงจาก urlparse(self.base_url).hostname
-                    'path': '/'
-                })
-
             self.logger.info(f"[Crawler] 🍪 External cookies set. Total: {len(self.external_cookies)}")
         except Exception as e:
             self.logger.error(f"[Crawler] ❌ Error setting external cookies: {e}")
@@ -137,8 +116,11 @@ class Crawler:
             self.logger.info(f"  [..] Processing: {clean_url} (Depth: {depth})")
             response = await page.goto(clean_url, wait_until="networkidle", timeout=15000)
             
-            if "login.php" in page.url and "login.php" not in clean_url:
-                self.logger.warning(f"⚠️ [Crawler] Session expired at {clean_url}")
+            # Generic session expiry: redirected to a login page we didn't intend to visit
+            is_on_login_page = any(kw in page.url.lower() for kw in ["login", "signin", "auth"])
+            was_targeting_login = any(kw in clean_url.lower() for kw in ["login", "signin", "auth"])
+            if is_on_login_page and not was_targeting_login:
+                self.logger.warning(f"⚠️ [Crawler] Session expired / redirected to login at {clean_url}")
                 return
 
             # รอเมนูโผล่ (ใช้เวลาสั้นลง)

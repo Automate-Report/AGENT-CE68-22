@@ -27,7 +27,7 @@ class Settings:
 
     def __init__(self):
          
-        self.access_key = "KiNQSQODu7bNBv31aDCofvskfmM2Z-KYjtBz67pglOg"
+        self.access_key = "PToet3_HJnhNIVlFcnDylTjjtPnFd3E9xurEW--GgZM"
         self.poll_interval = 5
         self.hostname = socket.gethostname()
         
@@ -39,7 +39,7 @@ class Settings:
         self.worker_id = 1
         self.worker_name = ""
         self.maxThread = 2
-        self.backend_url = ""
+        self.backend_url = "http://localhost:8000"
         self.redis_url = "redis://10.66.1.226:5678/1"
         
 

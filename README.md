@@ -5,3 +5,10 @@ python -m nuitka --enable-plugin=anti-bloat --include-package=src main.py
 .venv\Scripts\Activate.ps1
 
 pyinstaller --onedir --name=Pest10Worker --add-data "./src/data;data" main.py
+
+pyinstaller --onedir \
+  --name=Pest10Worker \
+  --add-data "./src/data;data" \
+  --collect-all cryptography \
+  --collect-all charset_normalizer \
+  main.py

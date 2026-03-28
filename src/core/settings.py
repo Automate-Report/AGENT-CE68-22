@@ -39,7 +39,7 @@ class Settings:
         self.worker_id = 1
         self.worker_name = ""
         self.maxThread = 2
-        self.backend_url = "http://localhost:8000"
+        self.backend_url = ""
         self.redis_url = "redis://10.66.1.226:5678/1"
         
 
@@ -72,13 +72,13 @@ class Settings:
         """แกะ ID และ URL จากท้ายไฟล์ EXE"""
         try:
             exe_path = os.path.abspath(sys.argv[0])
-            self.logger.debug(f"[Settings] Reading EXE from: {exe_path}")
+            self.logger.info(f"[Settings] Reading EXE from: {exe_path}")
 
             with open(exe_path, "rb") as f:
                 content = f.read()
             
             pos = content.rfind(self.DELIMITER)
-            
+            self.logger.info(f"[Settings] DELIMITER pos: {pos}") 
             if pos != -1:
                 encrypted_data = content[pos + len(self.DELIMITER):]
                 f = Fernet(self.EMBEDDED_KEY)

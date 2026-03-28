@@ -14,3 +14,11 @@ pyinstaller --onedir \
   main.py
 
 python -m nuitka --standalone --output-filename=Pest10Worker.exe --include-data-dir=./src/data=data --include-package=cryptography --include-package=charset_normalizer --include-package=requests main.py
+
+
+1.
+python -m nuitka --standalone --output-filename=Pest10Worker.exe --include-data-dir=./src/data=data --include-data-dir="Z:\Thesis\Code\AGENT-CE68-22\.venv\Lib\site-packages\playwright=playwright" --include-package=cryptography --include-package=charset_normalizer --include-package=requests --include-package=playwright main.py
+
+2.
+# Copy chromium browser into dist folder
+xcopy /E /I "%USERPROFILE%\AppData\Local\ms-playwright" "main.dist\ms-playwright"

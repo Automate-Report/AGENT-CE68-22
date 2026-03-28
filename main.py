@@ -1,8 +1,13 @@
-import os
+import sys, os
 
-# [FIX] บังคับให้ Playwright ไปหา Browser ในเครื่อง (System Path) 
-# แทนที่จะหาในโฟลเดอร์ _internal ของ .exe
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
+# Get base path (works both frozen and normal)
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(__file__)
+
+# Point to bundled browsers
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(BASE_DIR, "ms-playwright")
 
 
 

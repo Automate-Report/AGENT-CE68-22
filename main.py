@@ -6,8 +6,9 @@ if getattr(sys, 'frozen', False):
 else:
     BASE_DIR = os.path.dirname(__file__)
 
-# Point to bundled browsers
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(BASE_DIR, "ms-playwright")
+# Point to bundled browsers (only when running as a compiled .exe)
+if getattr(sys, 'frozen', False):
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(BASE_DIR, "ms-playwright")
 
 
 

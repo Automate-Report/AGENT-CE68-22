@@ -13,9 +13,6 @@ from src.scanner.auth_handler import AuthHandler
 
 from src.core.logger import setup_logger
 
-from src.utils.browser_helper import dismiss_obstacles, trigger_hidden_elements, safe_wait
-from src.utils.url_helper import is_static_resource, normalize_url
-
 
 class Crawler:
     def __init__(self, cred: dict = None, logger=None):

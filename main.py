@@ -1,16 +1,16 @@
 import sys, os
 
-# Get base path (works both frozen and normal)
-if getattr(sys, 'frozen', False):
+# เช็คจาก executable แทน sys.frozen
+IS_EXE = not os.path.basename(sys.executable).startswith("python")
+
+if IS_EXE:
     BASE_DIR = os.path.dirname(sys.executable)
 else:
-    BASE_DIR = os.path.dirname(__file__)
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Point to bundled browsers (only when running as a compiled .exe)
-if getattr(sys, 'frozen', False):
+if IS_EXE:
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(BASE_DIR, "ms-playwright")
-
-
+    print(f"[DEBUG] PLAYWRIGHT_BROWSERS_PATH = {os.environ['PLAYWRIGHT_BROWSERS_PATH']}")
 
 from src.core.worker_engine import WorkerEngine
 from src.core.auth import AuthManager

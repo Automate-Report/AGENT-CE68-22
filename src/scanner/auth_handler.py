@@ -40,6 +40,7 @@ class AuthHandler:
             'input[type="email"], input[name*="user"], input[name*="email"], '
             'input#email, input[placeholder*="Email" i], input[name="username"], '
             'input[id*="user" i], input[id*="login" i]'
+            'input#username, input[for="username"]'
         )
         self.pass_selectors = 'input[type="password"], input[name*="pass"]'
         self.submit_selectors = (

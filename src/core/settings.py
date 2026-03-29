@@ -27,7 +27,7 @@ class Settings:
 
     def __init__(self):
          
-        self.access_key = "PToet3_HJnhNIVlFcnDylTjjtPnFd3E9xurEW--GgZM"
+        self.access_key = "1rvXUwtUb2bM_cXVWPmmC7qmGfz_OXMLk9cI6gSugH0"
         self.poll_interval = 5
         self.hostname = socket.gethostname()
         
@@ -36,7 +36,7 @@ class Settings:
         self.logger = setup_logger("Worker")
 
         # extract จาก exe
-        self.worker_id = 1
+        self.worker_id = 2
         self.worker_name = ""
         self.maxThread = 2
         self.backend_url = "http://localhost:8000"

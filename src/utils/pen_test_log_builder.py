@@ -15,6 +15,13 @@ class VulnerabilityBuilder:
         }
 
         self.knowledge_base = {
+            "Authentication Bypass via SQL Injection": {
+                "name": "Authentication Bypass via SQL Injection",
+                "desc": "ช่องโหว่ที่เกิดขึ้นเมื่อแอปพลิเคชันนำข้อมูลจากผู้ใช้ไปรวมใน Query สำหรับตรวจสอบสิทธิ์ (Authentication) โดยไม่มีการตรวจสอบที่ดีพอ ทำให้ผู้โจมตีสามารถข้ามขั้นตอนการเข้าสู่ระบบได้โดยไม่ต้องมีรหัสผ่านที่ถูกต้อง",
+                "fix": "1. ใช้ Prepared Statements หรือ Parameterized Queries ในการจัดการข้อมูลจากผู้ใช้\n2. หลีกเลี่ยงการสร้าง Dynamic SQL String ในฟังก์ชัน Login\n3. ใช้ Library สำหรับ Authentication มาตรฐานแทนการเขียนระบบตรวจสอบเอง",
+                "cvss_score": 9.8,
+                "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+            },
             "SQLi": {
                 "name": "SQL Injection",
                 "desc": "The application allows an attacker to interfere with the queries it makes to its database.",
@@ -33,8 +40,12 @@ class VulnerabilityBuilder:
         }
 
     def build(self, url, param, vuln_type, payload, screenshot, **kwargs):
-        vuln_group = "SQLi" if "SQLi" in vuln_type else ("XSS" if "XSS" in vuln_type else "IDOR")
-        kb = self.knowledge_base.get(vuln_group, {})
+        if "SQL" in vuln_type: vuln_group = "SQLi"
+        elif "XSS" in vuln_type: vuln_group = "XSS"
+        else: vuln_group = "IDOR"
+
+        # พยายามดึงคำอธิบายที่ตรงตัวเป๊ะๆ ก่อน ถ้าไม่มีถึงจะดึงแบบ Group (SQLi, XSS, IDOR)
+        kb = self.knowledge_base.get(vuln_type) or self.knowledge_base.get(vuln_group, {})
 
         # --- แก้ไขจุดที่ 1: ดึงเฉพาะค่าดิบออกมา และบังคับเป็น String/Int เสมอ ---
         # การครอบด้วย str() จะช่วยล้าง Object ที่อาจหลงเหลืออยู่ในตัวแปร method หรือ url

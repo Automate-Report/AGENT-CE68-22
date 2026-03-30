@@ -34,7 +34,7 @@ class Crawler:
     async def get_browser_context(self):
         """Helper สำหรับให้ Orchestrator ยืม Browser ไปใช้ Login"""
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            browser = await p.chromium.launch(headless=False)
             
             context_options = {"ignore_https_errors": True}
             if hasattr(self, 'external_storage_state') and self.external_storage_state:
@@ -64,7 +64,7 @@ class Crawler:
         base_domain = urlparse(clean_start).netloc
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            browser = await p.chromium.launch(headless=False)
             
             context_options = {
                 "ignore_https_errors": True,

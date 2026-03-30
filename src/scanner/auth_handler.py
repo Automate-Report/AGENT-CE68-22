@@ -39,13 +39,13 @@ class AuthHandler:
         self.user_selectors = (
             'input[type="email"], input[name*="user"], input[name*="email"], '
             'input#email, input[placeholder*="Email" i], input[name="username"], '
-            'input[id*="user" i], input[id*="login" i]'
+            'input[id*="user" i], input[id*="login" i], '
             'input#username, input[for="username"]'
         )
         self.pass_selectors = 'input[type="password"], input[name*="pass"]'
         self.submit_selectors = (
             'input[type="submit"], button[type="submit"], '
-            'button:has-text("Login"), button:has-text("Sign in"), '
+            'button:has-text("Login"), button:has-text("Sign in"), button:has-text("Sign In"), '
             'input[name="Login"], input[value*="Login"], input[value*="Sign"]'
         )
         self.collected_findings = []
@@ -53,9 +53,10 @@ class AuthHandler:
 
     async def perform_login(self, page: Page, credentials: dict = None) -> bool:
 
-        has_form = await page.locator(self.pass_selectors).count() > 0
+        has_user_form = await page.locator(self.user_selectors).count() > 0
+        has_pass_form = await page.locator(self.pass_selectors).count() > 0
     
-        if not has_form:
+        if not (has_user_form or has_pass_form):
             self.logger.info("[Auth] 🕵️ No login form detected, searching for login page...")
             paths = [
                 # Standard paths
@@ -79,7 +80,7 @@ class AuthHandler:
                     break
 
         # 1. ลอง Standard Login (ถ้ามี Creds)
-        if credentials and credentials.get('username') and credentials.get('password'):
+        if credentials and credentials.get('username'):
             self.logger.info(f"[Auth] 🔑 Testing Job Credentials...")
             if await self._try_standard_login(page, credentials):
                 return True
@@ -103,10 +104,32 @@ class AuthHandler:
 
             if await user_input.is_visible():
                 await user_input.fill(creds['username'])
-                await pass_input.fill(creds['password'])
-
-                await pass_input.press("Enter")
                 
+                if await pass_input.is_visible() and creds.get('password'):
+                    await pass_input.fill(creds['password'])
+                    await pass_input.press("Enter")
+                else:
+                    submit_btn = page.locator(self.submit_selectors).first
+                    if await submit_btn.is_visible():
+                        await submit_btn.click()
+                    else:
+                        await user_input.press("Enter")
+                        
+                    if creds.get('password'):
+                        try:
+                            # Might be a multi-step login. Wait for password if we have one.
+                            await pass_input.wait_for(state="visible", timeout=3000)
+                            if await pass_input.is_visible():
+                                await pass_input.fill(creds['password'])
+                                # Submit again
+                                submit_btn = page.locator(self.submit_selectors).first
+                                if await submit_btn.is_visible():
+                                    await submit_btn.click()
+                                else:
+                                    await pass_input.press("Enter")
+                        except Exception:
+                            pass # No password field appeared
+
                 await page.wait_for_timeout(2000)
                 if await self._check_success(page):
                     self.logger.info("✅ Standard Login successful!")
@@ -284,8 +307,9 @@ class AuthHandler:
 
 
     async def _capture_session(self, page: Page):
-        """เก็บ Cookies และบันทึก URL ล่าสุดไว้"""
+        """เก็บ Cookies, Storage State และบันทึก URL ล่าสุดไว้"""
         self.cookies = await page.context.cookies()
+        self.storage_state = await page.context.storage_state()
         self.last_authenticated_url = page.url # 🚩 บันทึก URL ทันทีที่ Login สำเร็จ
         self.logger.debug(f"[Auth] Session & URL ({self.last_authenticated_url}) captured.")
 

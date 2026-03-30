@@ -34,7 +34,12 @@ class Crawler:
         """Helper สำหรับให้ Orchestrator ยืม Browser ไปใช้ Login"""
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(ignore_https_errors=True)
+            
+            context_options = {"ignore_https_errors": True}
+            if hasattr(self, 'external_storage_state') and self.external_storage_state:
+                context_options["storage_state"] = self.external_storage_state
+                
+            context = await browser.new_context(**context_options)
 
             if hasattr(self, 'external_cookies') and self.external_cookies:
                 await context.add_cookies(self.external_cookies)
@@ -59,10 +64,16 @@ class Crawler:
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                ignore_https_errors=True,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
+            
+            context_options = {
+                "ignore_https_errors": True,
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            if hasattr(self, 'external_storage_state') and self.external_storage_state:
+                context_options["storage_state"] = self.external_storage_state
+                self.logger.info("[Crawler] 📦 Context initialized with Storage State (LocalStorage/Cookies)")
+                
+            context = await browser.new_context(**context_options)
 
             if hasattr(self, 'external_cookies') and self.external_cookies:
                 # ตรวจสอบว่าคุกกี้มี Domain หรือยัง ถ้าไม่มีให้แปะ Domain เข้าไป
@@ -102,6 +113,16 @@ class Crawler:
             self.logger.info(f"[Crawler] 🍪 External cookies set. Total: {len(self.external_cookies)}")
         except Exception as e:
             self.logger.error(f"[Crawler] ❌ Error setting external cookies: {e}")
+
+    def set_external_storage_state(self, storage_state: dict):
+        """รับ Storage State (LocalStorage/SessionStorage/Cookies) จากภายนอก"""
+        try:
+            if not storage_state:
+                return
+            self.external_storage_state = storage_state
+            self.logger.info(f"[Crawler] 📦 External storage state set.")
+        except Exception as e:
+            self.logger.error(f"[Crawler] ❌ Error setting external storage state: {e}")
 
     async def _process_url(self, url, depth, context, queue, base_domain, max_depth):
         """Visit a URL, capture real API calls during interaction, extract params and links."""

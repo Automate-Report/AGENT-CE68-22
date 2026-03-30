@@ -158,6 +158,7 @@ class ScanOrchestrator:
                     
                     self.session_state["auth_info"] = {
                         "cookies": cookies,
+                        "storage_state": getattr(self.crawler.auth_handler, 'storage_state', None),
                         "auth_token": getattr(self.crawler.auth_handler, 'auth_token', None)
                     }
                     self.logger.info(f"✅ [Auth Success] Current URL: {page.url}")
@@ -284,12 +285,16 @@ class ScanOrchestrator:
                 auth_findings = self.crawler.auth_handler.collected_findings
             
             if auth_success:
-                # 1. ดึงคุกกี้ออกมาจัดการก่อน
+                # 1. ดึงข้อมูล Session จาก AuthHandler ออกมาจัดการ
                 captured_cookies = self.crawler.auth_handler.cookies
+                captured_storage = getattr(self.crawler.auth_handler, 'storage_state', None)
                 
                 if captured_cookies:
                     # ส่งคุกกี้เข้า Crawler สำหรับ Phase 3
                     self.crawler.set_external_cookies(captured_cookies)
+                if captured_storage:
+                    # ส่ง Storage State (LocalStorage/SessionStorage) เข้า Crawler
+                    self.crawler.set_external_storage_state(captured_storage)
 
                 current_url = self.crawler.auth_handler.last_authenticated_url or self.target
     

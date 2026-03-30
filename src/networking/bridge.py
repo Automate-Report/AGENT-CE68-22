@@ -96,9 +96,26 @@ class BackendBridge:
 
         url = f"{settings.backend_url}{settings.send_pentest_log}"
 
+        # 🔒 Encrypt the entire payload before sending
+        try:
+            from cryptography.fernet import Fernet
+            import json
+            
+            cipher_suite = Fernet(settings.job_key.encode())
+            raw_json_str = json.dumps(data)
+            encrypted_payload = cipher_suite.encrypt(raw_json_str.encode()).decode()
+            
+            payload_to_send = {
+                "job_id": data.get("job_id"),
+                "encrypted_data": encrypted_payload
+            }
+        except Exception as e:
+            self.logger.error(f"[Bridge] ❌ Encryption failed: {e}")
+            return None
+
         for attempt in range(2):
             try:
-                response = requests.post(url, json=data, headers=self.auth.get_headers(), timeout=30)
+                response = requests.post(url, json=payload_to_send, headers=self.auth.get_headers(), timeout=30)
 
                 if response.status_code == 201 or response.status_code == 200:
                     return response

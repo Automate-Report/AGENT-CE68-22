@@ -256,9 +256,9 @@ class ScanOrchestrator:
             self.logger.info(f"💉 Running XSS scans on {len(unique_targets)} endpoints...")
             findings = await self._run_xss_scan(unique_targets)
             
-        elif self.attack_type in ["idor", "IDOR"]:
-            self.logger.info(f"🕵️ Running IDOR/BOLA scans on {len(unique_targets)} endpoints...")
-            findings = await self._run_idor_scan(unique_targets)
+        # elif self.attack_type in ["idor", "IDOR"]:
+        #     self.logger.info(f"🕵️ Running IDOR/BOLA scans on {len(unique_targets)} endpoints...")
+        #     findings = await self._run_idor_scan(unique_targets)
             
         elif self.attack_type == "all":
             self.logger.info(f"🎯 Running ALL scans on {len(unique_targets)} endpoints...")

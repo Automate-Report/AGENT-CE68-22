@@ -9,6 +9,7 @@ from src.scanner.crawler import Crawler
 from src.exploits.xss.scanner import XSSScanner
 from src.exploits.xss.dom_scanner import DOMScanner
 from src.exploits.sqli.scanner import SQLiScanner
+from src.exploits.idor.scanner import IDORScanner
 from src.core.logger import setup_logger
 from src.networking.requester import Requester
 from src.utils.url_helper import normalize_url
@@ -29,6 +30,7 @@ class ScanOrchestrator:
         self.reflected_scanner = XSSScanner(logger=self.logger) 
         self.dom_scanner = DOMScanner(logger=self.logger)
         self.sqli_scanner = SQLiScanner(logger=self.logger)
+        self.idor_scanner = IDORScanner(logger=self.logger)
 
         # Logger Capture Setup
         self.log_capture = io.StringIO()
@@ -254,10 +256,15 @@ class ScanOrchestrator:
             self.logger.info(f"💉 Running XSS scans on {len(unique_targets)} endpoints...")
             findings = await self._run_xss_scan(unique_targets)
             
+        elif self.attack_type in ["idor", "IDOR"]:
+            self.logger.info(f"🕵️ Running IDOR/BOLA scans on {len(unique_targets)} endpoints...")
+            findings = await self._run_idor_scan(unique_targets)
+            
         elif self.attack_type == "all":
             self.logger.info(f"🎯 Running ALL scans on {len(unique_targets)} endpoints...")
             findings.extend(await self._run_xss_scan(unique_targets))
             findings.extend(await self._run_sqli_scan(unique_targets))
+            findings.extend(await self._run_idor_scan(unique_targets))
         else:
             self.logger.warning(f"⚠️ Unknown attack type: {self.attack_type}")
         
@@ -367,6 +374,8 @@ class ScanOrchestrator:
                 self.sqli_scanner.auth_info = auth_payload
             if hasattr(self.reflected_scanner, 'auth_info'):
                 self.reflected_scanner.auth_info = auth_payload
+            if hasattr(self.idor_scanner, 'auth_info'):
+                self.idor_scanner.auth_info = auth_payload
 
             self.logger.info("[ScanEngine] 🔄 Global Session Sync Completed (Cookies & Auth Info)")
 
@@ -506,5 +515,31 @@ class ScanOrchestrator:
                 findings.extend(await self.sqli_scanner.scan(url, params, method, c_type))
             except Exception as e:
                 self.logger.warning(f"  └─ Error scanning {url}: {str(e)}")
+        
+        return findings
+
+    async def _run_idor_scan(self, targets: list) -> list:
+        """Execute IDOR / BOLA scanning on targets"""
+        findings = []
+        for i, t in enumerate(targets, 1):
+            url = t["url"] if isinstance(t, dict) else str(t)
+            method = t.get("method", "GET") if isinstance(t, dict) else "GET"
+            params = t.get("params", {}) if isinstance(t, dict) else {}
+            c_type = t.get("content_type", "form") if isinstance(t, dict) else "form"
+            
+            # Important: Target can be marked as 'dom_only' originally if it had no query parameters.
+            # But if it HAS `path_id_X` parameters extracted from the URL, it is still a valid IDOR target!
+            has_path_ids = any(str(k).startswith("path_id_") for k in params.keys())
+            
+            # Skip if it is purely DOM only AND has no path parameters to fuzz
+            if t.get("dom_only", False) and not has_path_ids: continue
+            
+            # IDOR is mainly concerned with parameterized requests
+            if not params: continue
+
+            try:
+                findings.extend(await self.idor_scanner.scan(url, params, method, c_type))
+            except Exception as e:
+                self.logger.warning(f"  └─ Error scanning IDOR on {url}: {str(e)}")
         
         return findings

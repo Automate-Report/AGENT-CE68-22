@@ -10,7 +10,8 @@ class VulnerabilityBuilder:
             "Reflected XSS": "MEDIUM",
             "DOM XSS": "MEDIUM",
             "Stored XSS": "HIGH",
-            "Authentication Bypass via SQL Injection": "CRITICAL"
+            "Authentication Bypass via SQL Injection": "CRITICAL",
+            "Insecure Direct Object Reference (IDOR)": "HIGH"
         }
 
         self.knowledge_base = {
@@ -23,11 +24,16 @@ class VulnerabilityBuilder:
                 "name": "Cross-Site Scripting (XSS)",
                 "desc": "The application includes untrusted data in a web page without proper escaping, allowing script execution.",
                 "fix": "Use context-sensitive output encoding and avoid dangerous DOM sinks like innerHTML."
+            },
+            "IDOR": {
+                "name": "Insecure Direct Object Reference (IDOR) / BOLA",
+                "desc": "The application exposes direct references to private objects (like database IDs) and fails to verify if the requesting user has the appropriate permissions to access them.",
+                "fix": "Implement robust access controls at the object level. Ensure that for every data access, the system verifies that the logged-in user is authorized to perform the action on the requested object."
             }
         }
 
     def build(self, url, param, vuln_type, payload, screenshot, **kwargs):
-        vuln_group = "SQLi" if "SQLi" in vuln_type else "XSS"
+        vuln_group = "SQLi" if "SQLi" in vuln_type else ("XSS" if "XSS" in vuln_type else "IDOR")
         kb = self.knowledge_base.get(vuln_group, {})
 
         # --- แก้ไขจุดที่ 1: ดึงเฉพาะค่าดิบออกมา และบังคับเป็น String/Int เสมอ ---

@@ -35,23 +35,52 @@ class Requester:
             self.logger.error(f"[!] Request Error (POST): {e}")
             return None
     
-    def send(self, method: str, url: str, payload_data: dict = None, content_type: str = "form"):
+    def send(self, method: str, url: str, payload_data: dict = None, content_type: str = "form", timeout: int = 10):
         """
         ส่ง Request ตาม Method และ Content-Type ที่กำหนด
         content_type: 'form' (x-www-form-urlencoded) หรือ 'json' (application/json)
         """
         try:
             method = method.upper()
+            
+            # --- [NEW] URL Path Rewriting for IDOR/Path fuzzing ---
+            actual_payload = {}
+            if payload_data:
+                from urllib.parse import urlparse, urlunparse
+                parsed = urlparse(url)
+                parts = parsed.path.split('/')
+                
+                has_path_injection = False
+                for k, v in payload_data.items():
+                    if str(k).startswith("path_id_"):
+                        try:
+                            idx = int(k.split("_")[-1])
+                            if 0 <= idx < len(parts):
+                                parts[idx] = str(v)
+                                has_path_injection = True
+                        except: pass
+                    else:
+                        actual_payload[k] = v
+                
+                if has_path_injection:
+                    new_path = '/'.join(parts)
+                    # Preserve original query parameters that were already in the URL
+                    url = urlunparse((parsed.scheme, parsed.netloc, new_path, parsed.params, parsed.query, parsed.fragment))
+            else:
+                actual_payload = payload_data
+            # ------------------------------------------------------
+
             if method == "GET":
-                return self.session.get(url, params=payload_data, timeout=10, verify=False)
+                return self.session.get(url, params=actual_payload, timeout=timeout, verify=False)
             
             # สำหรับ POST, PUT, PATCH, DELETE
             if content_type == "json":
-                return self.session.request(method, url, json=payload_data, timeout=10, verify=False)
+                return self.session.request(method, url, json=actual_payload, timeout=timeout, verify=False)
             else:
-                return self.session.request(method, url, data=payload_data, timeout=10, verify=False)
+                return self.session.request(method, url, data=actual_payload, timeout=timeout, verify=False)
                 
         except Exception as e:
+            self.logger.error(f"[Requester] ❌ Exception in send: {e}")
             return None
         
     def set_cookies(self, cookies):

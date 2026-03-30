@@ -349,9 +349,9 @@ class Crawler:
         # 2. Strip all framework-internal params
         real_params = {k: v for k, v in params.items() if not self._is_internal_param(k)}
 
-        # 3. Path-parameter (IDOR) detection
+        # 3. Path-parameter (IDOR) detection (Numeric & UUID)
         for i, part in enumerate(parsed.path.split('/')):
-            if part.isdigit():
+            if part.isdigit() or (len(part) == 36 and "-" in part):
                 real_params[f"path_id_{i}"] = part
 
         # 4a. Has real (user-controlled) params → save as a normal scan target
@@ -402,6 +402,12 @@ class Crawler:
 
         # Strip internal params
         real_params = {k: v for k, v in params.items() if not self._is_internal_param(k)}
+
+        # --- [NEW] Path-parameter (IDOR) detection (Numeric & UUID) ---
+        for i, part in enumerate(parsed.path.split('/')):
+            if part.isdigit() or (len(part) == 36 and "-" in part):
+                real_params[f"path_id_{i}"] = part
+        # --------------------------------------------------------------
 
         if real_params:
             target_url = f"{clean_url}?{'&'.join(f'{k}={v}' for k, v in real_params.items())}"

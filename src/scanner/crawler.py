@@ -10,6 +10,7 @@ from src.scanner.interaction import InteractionEngine
 from src.scanner.link_extractor import LinkExtractor
 from src.scanner.param_extractor import ParameterExtractor
 from src.scanner.auth_handler import AuthHandler
+from src.utils.browser_helper import goto_with_retry
 
 from src.core.logger import setup_logger
 
@@ -168,7 +169,7 @@ class Crawler:
 
         try:
             self.logger.info(f"  [..] Processing: {clean_url} (Depth: {depth})")
-            await page.goto(clean_url, wait_until="networkidle", timeout=15000)
+            await goto_with_retry(page, clean_url, wait_until="networkidle", timeout=15000, logger=self.logger)
 
             # Generic session expiry check
             is_on_login_page   = any(kw in page.url.lower() for kw in ["login", "signin", "auth"])

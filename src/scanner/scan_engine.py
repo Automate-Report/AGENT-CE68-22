@@ -12,6 +12,7 @@ from src.exploits.sqli.scanner import SQLiScanner
 from src.core.logger import setup_logger
 from src.networking.requester import Requester
 from src.utils.url_helper import normalize_url
+from src.utils.browser_helper import goto_with_retry
 
 class ScanOrchestrator:
     def __init__(self, job_data: dict):
@@ -90,7 +91,7 @@ class ScanOrchestrator:
                 
                 try:
                     self.logger.info(f"🌐 Loading target page: {self.target}")
-                    await page.goto(self.target, wait_until="networkidle", timeout=15000)
+                    await goto_with_retry(page, self.target, wait_until="networkidle", timeout=15000, logger=self.logger)
                     self.logger.info(f"✅ Page loaded successfully")
                 except Exception as e:
                     self.logger.error(f"❌ Failed to load page: {str(e)}")
@@ -105,12 +106,13 @@ class ScanOrchestrator:
                     login_btn = page.locator('a:has-text("Login"), button:has-text("Login"), a:has-text("Sign in")').first
                     if await login_btn.is_visible():
                         await login_btn.click()
-                        await page.wait_for_load_state("networkidle")
+                        await page.wait_for_load_state("load")
+                        await page.wait_for_timeout(2000)
                     else:
                         base_url = self.target.rstrip('/')
                         for path in common_login_paths:
                             try:
-                                await page.goto(f"{base_url}{path}", wait_until="networkidle", timeout=5000)
+                                await goto_with_retry(page, f"{base_url}{path}", wait_until="networkidle", timeout=10000, logger=self.logger)
                                 if await page.locator('input[type="password"]').count() > 0:
                                     self.logger.info(f"✅ Found login form at {page.url}")
                                     break

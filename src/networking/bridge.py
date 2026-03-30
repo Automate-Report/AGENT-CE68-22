@@ -159,6 +159,45 @@ class BackendBridge:
 
         return None
 
+    def fetch_next_job(self):
+        """
+        Poll jobs from Backend instead of directly from Redis.
+        """
+        if not self.auth.token:
+            if not self.auth.verify_worker():
+                return None
+            
+        url = f"{settings.backend_url}{settings.get_next_job}"
+
+        try:
+            response = requests.post(url, headers=self.auth.get_headers(), timeout=10)
+
+            if response.status_code == 200:
+                data = response.json()
+                if data:  # could be null if no job
+                    return data
+                return None
+            
+            # Backend could return 404 or empty 200 when queue is empty
+            if response.status_code == 404:
+                return None
+            
+            if response.status_code in [401, 403]:
+                self.logger.info("[Bridge] Token Invalid while polling. Renewing...")
+                if not self.auth.verify_worker():
+                    self.emergency_shutdown("Access Revoked.")
+                return None
+                
+            self.logger.error(f"[Bridge] ❌ Failed to fetch job: status {response.status_code}: {response.text}")
+            return None
+
+        except requests.exceptions.Timeout:
+            self.logger.debug(f"[Bridge] 📡 Polling timeout.")
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"[Bridge] 📡 Network Error while polling: {e}")
+
+        return None
+
     def emergency_shutdown(self, reason):
         """กรณีเกิดข้อผิดพลาดร้ายแรง ให้หยุดการทำงานทันที"""
         self.logger.error(f"[Bridge] 🛑 EMERGENCY SHUTDOWN: {reason}")

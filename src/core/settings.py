@@ -49,6 +49,7 @@ class Settings:
         self.send_pentest_log = "/pentest-logs/" 
         self.heartbeat = "/workers/heartbeat/"
         self.update_job_status = "/jobs/update_status/"
+        self.get_next_job = "/jobs/next"
 
     def setup(self):
         # load from config.json

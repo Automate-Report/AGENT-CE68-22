@@ -14,12 +14,7 @@ class WorkerEngine:
         self.auth = AuthManager()
         self.bridge = BackendBridge(self.auth)
 
-        self.pool = redis.ConnectionPool.from_url(
-            url=settings.redis_url,
-            decode_responses=True
-        )
-
-        self.redis_client = redis.Redis(connection_pool=self.pool)
+        # Removed direct Redis connection
         self.queue_name = f"system:queue:work:{settings.worker_id}"
         self.executor = ThreadPoolExecutor(max_workers=settings.maxThread)
         self.logger = setup_logger("Worker Engine")
@@ -62,28 +57,24 @@ class WorkerEngine:
         # 2. เริ่มส่ง Heartbeat (Background Thread)
         self.bridge.start_heartbeat_loop()
 
-        # 3. เริ่มดึงงานจาก Redis (Main Loop)
-        self.logger.info(f"[Worker Engine] 📡 Waiting for jobs in queue...")
+        # 3. เริ่มดึงงานจาก Backend (Main Loop)
+        self.logger.info(f"[Worker Engine] 📡 Waiting for jobs from Backend API...")
         try:
             while True:
-                # ใช้ blpop เพื่อรอรับงานแบบ Blocking (ไม่กิน CPU)
-                # จะคืนค่าเป็น tuple (queue_name, data)
-                task_tuple = self.redis_client.blpop(self.queue_name, timeout=0)
+                # Poll data from the backend
+                job_data = self.bridge.fetch_next_job()
                 
-                if task_tuple:
-                    raw_data = task_tuple[1]
+                if job_data:
                     try:
-
-                        job_data = json.loads(raw_data)
                         self.logger.debug(f"[Worker Engine] DEBUG: job_data content is {job_data}")
                         job_id = job_data.get("job_id")
                         job_name = job_data.get("name")
 
                         if job_id is None:
                             self.logger.info("[Worker Engine] ❌ Error: job_id is missing in payload")
-                            return
+                            continue
                         
-                        settings.maxThread = job_data.get("thread_number")
+                        settings.maxThread = job_data.get("thread_number", settings.maxThread)
                         
                         # ส่งงานเข้าไปใน Thread Pool
                         # หาก Thread เต็ม งานจะเข้าคิวรออัตโนมัติ
@@ -95,8 +86,12 @@ class WorkerEngine:
                         }
                         self.bridge.update_status_job(payload)
 
-                    except json.JSONDecodeError:
-                        self.logger.error("[Worker Engine] ❌ Error: Could not decode JSON")
+                    except Exception as e:
+                        self.logger.error(f"[Worker Engine] ❌ Error processing job: {e}")
+                
+                # Sleep to prevent spamming the backend if queue is empty
+                import time
+                time.sleep(settings.poll_interval)
 
         except KeyboardInterrupt:
             self.logger.error("[Worker Engine] 🛑 Worker is shutting down...")

@@ -1,5 +1,32 @@
 import time
-from playwright.sync_api import Page
+import asyncio
+from playwright.async_api import Page
+
+async def goto_with_retry(page: Page, url: str, wait_until: str = "networkidle", timeout: int = 15000, max_retries: int = 3, logger=None):
+    """โหลดหน้าเว็บพร้อมระบบลองใหม่ (Retry) กรณีอินเทอร์เน็ตมีปัญหา เช่น ERR_NETWORK_CHANGED"""
+    original_wait = wait_until
+    if wait_until == "networkidle":
+        wait_until = "load"
+        
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            res = await page.goto(url, wait_until=wait_until, timeout=timeout)
+            
+            # ถ้าตั้งใจจะใช้ networkidle (มักจะมีปัญหากับ SPA) ให้เปลี่ยนเป็นรอ 2 วิหลังจาก load เสร็จ
+            if original_wait == "networkidle":
+                await page.wait_for_timeout(2000)
+                
+            return res
+        except Exception as e:
+            last_error = e
+            if logger:
+                logger.warning(f"⚠️ Navigation failed [{attempt+1}/{max_retries}] to {url}: {str(e)}")
+            
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2)
+                
+    raise last_error
 
 async def dismiss_obstacles(page: Page):
     """เคลียร์ Pop-ups, Cookie Banners และ Overlays ทั้งหมด"""

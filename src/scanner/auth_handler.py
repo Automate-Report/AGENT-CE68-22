@@ -4,6 +4,7 @@ import json
 from playwright.async_api import Page, BrowserContext
 from src.core.logger import setup_logger
 from src.utils.pen_test_log_builder import VulnerabilityBuilder
+from src.utils.browser_helper import goto_with_retry
 
 class AuthHandler:
     def __init__(self, logger=None):
@@ -74,7 +75,10 @@ class AuthHandler:
             base_url = page.url.split('#')[0].rstrip('/')
             
             for path in paths:
-                await page.goto(f"{base_url}{path}", wait_until="networkidle")
+                try:
+                    await goto_with_retry(page, f"{base_url}{path}", wait_until="networkidle", timeout=15000, logger=self.logger)
+                except Exception:
+                    pass
                 if await page.locator(self.pass_selectors).count() > 0:
                     self.logger.info(f"[Auth] 📍 Found login form at {page.url}")
                     break
@@ -154,7 +158,8 @@ class AuthHandler:
         if await login_btn.is_visible():
             try:
                 await login_btn.click()
-                await page.wait_for_load_state("networkidle")
+                await page.wait_for_load_state("load")
+                await page.wait_for_timeout(2000)
                 return await self.login_with_heuristics(page, creds)
             except: pass
             
@@ -251,9 +256,10 @@ class AuthHandler:
                     login_link = page.locator('a:has-text("Login"), a:has-text("Sign in")').first
                     if await login_link.is_visible():
                         await login_link.click()
-                        await page.wait_for_load_state("networkidle")
+                        await page.wait_for_load_state("load")
+                        await page.wait_for_timeout(2000)
                     else:
-                        await page.goto(f"{page.url.split('#')[0]}#/login", wait_until="networkidle")
+                        await goto_with_retry(page, f"{page.url.split('#')[0]}#/login", wait_until="networkidle", timeout=15000, logger=self.logger)
 
                 # 4. Locate form elements
                 user_input = page.locator(user_selectors).first
@@ -346,7 +352,8 @@ class AuthHandler:
                 await user_input.fill(username)
                 await pass_input.fill(password)
                 await submit_btn.click()
-                await page.wait_for_load_state("networkidle", timeout=5000)
+                await page.wait_for_load_state("load")
+                await page.wait_for_timeout(2000)
 
                 if await self._check_success(page):
                     await self._capture_session(page)

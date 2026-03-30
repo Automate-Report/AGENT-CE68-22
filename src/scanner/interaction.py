@@ -114,7 +114,7 @@ class InteractionEngine:
                     f"    [⚠️ Scope Guard] Left target scope! ({current[:60]}) → going back"
                 )
                 await page.go_back(timeout=4000)
-                await page.wait_for_load_state("networkidle", timeout=3000)
+                await page.wait_for_timeout(2000)
                 return True
         except: pass
         return False
@@ -191,7 +191,7 @@ class InteractionEngine:
                         seen_hrefs.add(href)
 
                         await el.click(timeout=1200)
-                        await page.wait_for_load_state("networkidle", timeout=3000)
+                        await page.wait_for_timeout(2000)
                         await self._guard_origin(page)   # recover if we left the scope
                         await page.keyboard.press("Escape")
                         self.logger.debug(f"    [Nav] Clicked: {text[:40]!r}")
@@ -257,7 +257,7 @@ class InteractionEngine:
 
                 # Press Enter to submit (most common trigger for search/filter)
                 await inp.press("Enter")
-                await page.wait_for_load_state("networkidle", timeout=3000)
+                await page.wait_for_timeout(2000)
                 await page.keyboard.press("Escape")
 
             except: continue
@@ -284,7 +284,7 @@ class InteractionEngine:
                             continue
 
                         await el.click(timeout=1200)
-                        await page.wait_for_load_state("networkidle", timeout=3000)
+                        await page.wait_for_timeout(2000)
                         await self._guard_origin(page)
                         await page.keyboard.press("Escape")
                         self.logger.info(f"    [Action] Clicked button: {text[:40]!r}")

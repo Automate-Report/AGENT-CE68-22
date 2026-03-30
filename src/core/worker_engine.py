@@ -76,6 +76,20 @@ class WorkerEngine:
                         
                         settings.maxThread = job_data.get("thread_number", settings.maxThread)
                         
+                        # Decrypt credentials if present
+                        if job_data.get("credential"):
+                            try:
+                                from cryptography.fernet import Fernet
+                                cipher_suite = Fernet(settings.job_key.encode())
+                                cred = job_data["credential"]
+                                if cred.get("username"):
+                                    cred["username"] = cipher_suite.decrypt(cred["username"].encode()).decode()
+                                if cred.get("password"):
+                                    cred["password"] = cipher_suite.decrypt(cred["password"].encode()).decode()
+                                self.logger.info("[Worker Engine] 🔐 Decrypted credentials successfully")
+                            except Exception as decrypt_err:
+                                self.logger.error(f"[Worker Engine] ❌ Failed to decrypt credentials: {decrypt_err}")
+                        
                         # ส่งงานเข้าไปใน Thread Pool
                         # หาก Thread เต็ม งานจะเข้าคิวรออัตโนมัติ
                         self.executor.submit(self.run_task, job_data)

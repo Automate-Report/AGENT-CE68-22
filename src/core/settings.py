@@ -27,7 +27,8 @@ class Settings:
 
     def __init__(self):
          
-        self.access_key = "OH9olUHmVqXyVHFJmH3I3UTj6FlGnRgJPOrALJJ_pB4"
+        self.access_key = "QaIli9JuRFL1qBwmT6aXq0AmP_BHIMwrmotihmaIUBQ"
+        self.job_key = "oeykLLvgyjWEMTaMff_D4CRyRh0R5tUypO8kM5eGT74="
         self.poll_interval = 5
         self.hostname = socket.gethostname()
         
@@ -36,7 +37,7 @@ class Settings:
         self.logger = setup_logger("Worker")
 
         # extract จาก exe
-        self.worker_id = 2
+        self.worker_id = 9
         self.worker_name = ""
         self.maxThread = 2
         self.backend_url = "http://localhost:8000"
@@ -104,7 +105,7 @@ class Settings:
                 self.worker_name = data.get("WORKER_NAME")
                 self.maxThread = data.get("NUMBER_OF_THREADS", 1)
                 self.backend_url = data.get("BACKEND_URL")
-                self.redis_url = data.get("REDIS_URL")
+                self.job_key = data.get("JOB_KEY")
 
                 self.logger.info(f"[Settings] Config Found: Worker {self.worker_name}")
             else:

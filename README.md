@@ -21,4 +21,4 @@ python -m nuitka --standalone --output-filename=Pest10Worker.exe --include-data-
 
 2.
 # Copy chromium browser into dist folder
-xcopy /E /I "%USERPROFILE%\AppData\Local\ms-playwright" "main.dist\ms-playwright"
+xcopy /E /I /Y "%USERPROFILE%\AppData\Local\ms-playwright\chromium_headless_shell-1200" "main.dist\playwright\driver\package\.local-browsers\chromium_headless_shell-1200"

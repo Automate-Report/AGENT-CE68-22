@@ -27,7 +27,7 @@ class Settings:
 
     def __init__(self):
          
-        self.access_key = "QaIli9JuRFL1qBwmT6aXq0AmP_BHIMwrmotihmaIUBQ"
+        self.access_key = "5pbrdOu68JgMt_hwX3VX5EahL8PT6Vfq1gREr99iEbE"
         self.job_key = "oeykLLvgyjWEMTaMff_D4CRyRh0R5tUypO8kM5eGT74="
         self.poll_interval = 5
         self.hostname = socket.gethostname()
@@ -37,12 +37,12 @@ class Settings:
         self.logger = setup_logger("Worker")
 
         # extract จาก exe
-        self.worker_id = 9
+        self.worker_id = 3
         self.worker_name = ""
         self.maxThread = 2
-        self.backend_url = "http://localhost:8000"
+        self.backend_url = "http://ad14eb44-0070-4ec8-8a76-6d204c46ade0.cloud.ce.kmitl.ac.th/api"
 
-        self.redis_url = "redis://10.66.1.226:5678/1"
+        # self.redis_url = "redis://10.66.1.226:5678/1"
         
 
         self.get_worker_endpoint = "/workers/"

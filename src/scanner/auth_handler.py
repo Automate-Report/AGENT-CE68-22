@@ -333,11 +333,29 @@ class AuthHandler:
         # Generic Check 2: หน้าเว็บมีการเปลี่ยนแปลงจากหน้า Login เดิมชัดเจน (เช่น URL เปลี่ยน)
         url_changed = "login" not in page.url.lower() and "auth" not in page.url.lower()
 
-        # Generic Check 3: มี Cookies ใหม่ที่ถูกตั้งค่าเป็น HttpOnly (ส่วนใหญ่เป็น Session ID)
+        # Generic Check 3: ตรวจสอบ Cookie ค้นหา HttpOnly หรือชื่อคุกกี้ที่สื่อถึง Auth Token (SPA/JWT)
         cookies = await page.context.cookies()
-        has_session_cookie = any(c.get('httpOnly') for c in cookies)
+        auth_cookie_names = ["session", "token", "jwt", "auth", "access_token", "id_token"]
+        has_auth_cookie = any(
+            c.get('httpOnly') or any(auth_name in c.get('name', '').lower() for auth_name in auth_cookie_names)
+            for c in cookies
+        )
 
-        return (await page.locator(logout_indicators).count() > 0) or (url_changed and has_session_cookie)
+        # Generic Check 4: LocalStorage / SessionStorage ถูกสร้างขึ้นมาและมี Token
+        if not has_auth_cookie:
+            storage = await page.context.storage_state()
+            for origin in storage.get('origins', []):
+                for item in origin.get('localStorage', []) + origin.get('sessionStorage', []):
+                    if any(k in item['name'].lower() for k in auth_cookie_names):
+                        has_auth_cookie = True
+                        break
+
+        try:
+            logout_visible = await page.locator(logout_indicators).count() > 0
+        except Exception:
+            logout_visible = False
+
+        return logout_visible or (url_changed and has_auth_cookie)
     
     async def _try_default_creds(self, page: Page) -> bool:
         self.logger.info("[Auth] 🔑 Testing default credentials...")

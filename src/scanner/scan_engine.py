@@ -305,7 +305,7 @@ class ScanOrchestrator:
                     # ส่ง Storage State (LocalStorage/SessionStorage) เข้า Crawler
                     self.crawler.set_external_storage_state(captured_storage)
 
-                current_url = self.crawler.auth_handler.last_authenticated_url or self.target
+                current_url = self.target
     
                 self.logger.info("=" * 60)
                 self.logger.info(f"[PHASE 3] DEEP CRAWLING WITH SESSION...")
